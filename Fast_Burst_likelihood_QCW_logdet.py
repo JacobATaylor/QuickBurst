@@ -6,7 +6,6 @@ from numba.experimental import jitclass
 from numba.typed import List
 #import scipy.linalg
 import scipy.linalg as sl
-from lapack_wrappers import solve_triangular
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
@@ -39,11 +38,11 @@ class FastBurst:
         print('Nvecs arary: ', self.Nvecs)
         #get the part of the determinant that can be computed right now
         '''what does this function actualy return'''
-        # self.logdet = 0.0
-        # for (l,m) in self.pta.get_rNr_logdet(self.params):
-        #     self.logdet += m
-        # #self.logdet += np.sum([m for (l,m) in self.pta.get_rNr_logdet(self.params)])
-        # print(-0.5*self.logdet)
+        self.logdet = 0.0
+        for (l,m) in self.pta.get_rNr_logdet(self.params):
+            self.logdet += m
+        #self.logdet += np.sum([m for (l,m) in self.pta.get_rNr_logdet(self.params)])
+        print(self.logdet)
         #get the other pta results
         self.TNTs = self.pta.get_TNT(self.params)
         Ts = self.pta.get_basis()
@@ -52,24 +51,36 @@ class FastBurst:
         self.Nrs = List()
         self.isqrNvecs = List()
 
-
         self.toas = List([psr.toas - tref for psr in psrs])
         self.residuals = List([psr.residuals for psr in psrs])
 
+        self.resres_rNr = 0.
+        self.TNvs = List()
+        self.dotTNrs = List()
         for i in range(self.Npsr):
+            self.isqrNvecs.append(1/np.sqrt(self.Nvecs[i]))
             self.Nrs.append(self.residuals[i]/np.sqrt(self.Nvecs[i]))
+            print('Nrs: ', self.Nrs)
+            self.resres_rNr += np.dot(self.Nrs[i], self.Nrs[i])
+            print('resres_rNr: ', self.resres_rNr)
+            self.TNvs.append((Ts[i].T/np.sqrt(self.Nvecs[i])).copy().T) #store F contiguous version
+            self.dotTNrs.append(np.dot(self.Nrs[i],self.TNvs[i]))
 
-        self.resres_logdet = np.sum([ell for ell in self.pta.get_rNr_logdet(params)])
-        print(-0.5*self.resres_logdet)
+        #put the rnr part of resres onto logdet
+        '''why do we need to sum the rnr dot product'''
+
+        self.logdet_base = self.resres_rNr+self.logdet
+        '''Adds phi and sigma calculations to logdet, which is used to calculate covariance C. '''
+        self.logdet = self.set_logdet()
+        print('self.logdet: ', self.logdet)
+
+    '''function pulled from various parts of Quick CW to finish calculating logdet for lnlikelihood calls'''
+    def set_logdet(self):
 
         logdet_array = np.zeros(self.Npsr)
         pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
 
-        invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
-
-        dotSigmaTNr = np.zeros(self.Npsr)
         for i in range(self.Npsr):
-
             phiinv_loc,logdetphi_loc = pls_temp[i]
 
             '''may need special case when phiinv_loc.ndim=1'''
@@ -77,23 +88,13 @@ class FastBurst:
 
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,Ts[i].T,lower_a=True,trans_a=False)
-            invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[i])))
 
             logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)#2 * np.sum(np.log(np.diag(chol_Sigma)))
 
             #add the necessary component to logdet
-            logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
-            print('logdet_phi: ',logdetphi_loc)
-            print('logdet_sigma',logdet_Sigma_loc)
+            logdet_array[i] = - logdetphi_loc - logdet_Sigma_loc
 
-            invCholSigmaTN = invchol_Sigma_TNs[i]
-            SigmaTNrProd = np.dot(invCholSigmaTN,self.Nrs[i])
-
-            dotSigmaTNr[i] = np.dot(SigmaTNrProd.T,SigmaTNrProd)
-
-        self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
-        print(-0.5*self.resres_logdet)
+        return self.logdet_base + np.sum(logdet_array)
 
     def get_M_N(self, f0, tau, t0):
         #call the enterprise inner product
@@ -164,7 +165,7 @@ class FastBurst:
         '''
         x0: List of params
         resres: pulsar residuals
-        logdet: logdet (2*pi*C) = log(det(phi)*det(sigma)*det(N))
+        logdet: log(2*pi*C) in loglikelihood calculation
         '''
         '''
         self.NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
@@ -179,25 +180,19 @@ class FastBurst:
         self.get_M_N(f0,tau,t0)
         print('New M and N: ', self.MMs[0, :, :], self.NN[0, :])
         LogL = 0
-        '''
-        ######Understanding the components of logdet######
-        logdet = logdet(2*pi*C) = log(det(phi)*det(sigma)*det(N))
-        N = white noise covariance matrix
-        phi = prior matrix
-        sigma = inverse(phi) - transpose(T)*inverse(N)*T (first term -> phiinv, second term -> TNT)
-        T = [M F]
-        M = Design matrix
-        F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
-        We should print out these terms in both enterprise and our code and compare, rather than printing out multiple terms calculated (maybe?).
-        '''
-        LogL += -1/2*self.resres_logdet
-        print('adding in resres_logdet', LogL)
+        LogL += -1/2*self.logdet
         for i in range(len(self.psrs)):
-            #if statments to only include the glitch in the pulsar it is assigned to
+            #if statments to only include the glitch in the pulaser it is assigned to
             if (i-0.5 <= glitch_idx <= i+0.5):
-                print('adding the signal at {0}'.format(i))
-                LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
+                LogL += -1/2*np.dot(self.Nrs[i], self.Nrs[i]) + (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
                 LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
+                print('reseres: ', np.dot(self.Nrs[i], self.Nrs[i]))
+                print('logdet: ', self.logdet)
+            else:
+                print('skipped ', i)
+                LogL += -1/2*np.dot(self.Nrs[i], self.Nrs[i])
+                print('reseres: ', np.dot(self.Nrs[i], self.Nrs[i]))
+                print('logdet: ', self.logdet)
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
@@ -225,3 +220,111 @@ def logdet_Sigma_helper(chol_Sigma):
     for itrj in prange(0,chol_Sigma.shape[0]):
         res += np.log(chol_Sigma[itrj,itrj])
     return 2*res
+
+# for TNr, TNT, pl in zip(TNrs, TNTs, phiinvs):
+#     if TNr is None:
+#         continue
+#
+#     phiinv, logdet_phi = pl
+#     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+#
+#     try:
+#         cf = sl.cho_factor(Sigma)
+#         expval = sl.cho_solve(cf, TNr)
+#     except sl.LinAlgError:  # pragma: no cover
+#         return -np.inf
+#
+#     logdet_sigma = np.sum(2 * np.log(np.diag(cf[0])))
+#
+#     loglike += 0.5 * (np.dot(TNr, expval) - logdet_sigma - logdet_phi)
+
+    # def cov_calc():
+    #     cov = stuff
+    #
+    #
+    #     return cov
+    #     logL = np.sum(-1/2*)
+    #     prior_ranges = {'amplitude': [0, 2]}
+    #     amp_prior = [prior_ranges['amplitude'][0], prior_ranges['amplitude'][1]]
+    #     Central_freq_prior = [prior_ranges['frequency'][0], prior_ranges['frequency'][1]]
+    #     phase_prior = [prior_ranges['phase'][0], prior_ranges['phase'][1]]
+    #
+    #     if prior == 'Uniform':
+    #         amp_prior = Parameter.Uniform(amp_prior[0], amp_prior[1])
+    #         Central_freq_prior = Parameter.Uniform(Central_freq_prior[0], Central_freq_prior[1])
+    #
+    #     amp_value = amp_prior.sample()
+    #
+    #
+    #     """jittable helper for calculating the log likelihood in CWFastLikelihood"""
+    #     if prior_recovery:
+    #         return 0.0
+    #     else:
+    #         fgw = 10.**x0.log10_fgw
+    #         amp = 10.**x0.log10_h / (2*np.pi*fgw)
+    #         mc = 10.**x0.log10_mc * const.Tsun
+    #
+    #
+    #         sin_gwtheta = np.sqrt(1-x0.cos_gwtheta**2)
+    #         sin_gwphi = np.sin(x0.gwphi)
+    #         cos_gwphi = np.cos(x0.gwphi)
+    #
+    #         m = np.array([sin_gwphi, -cos_gwphi, 0.0])
+    #         n = np.array([-x0.cos_gwtheta * cos_gwphi, -x0.cos_gwtheta * sin_gwphi, sin_gwtheta])
+    #         omhat = np.array([-sin_gwtheta * cos_gwphi, -sin_gwtheta * sin_gwphi, -x0.cos_gwtheta])
+    #         sigma = np.zeros(4)
+    #
+    #         cos_phase0 = np.cos(x0.phase0)
+    #         sin_phase0 = np.sin(x0.phase0)
+    #         sin_2psi = np.sin(2*x0.psi)
+    #         cos_2psi = np.cos(2*x0.psi)
+    #
+    #         log_L = -0.5*resres -0.5*logdet
+    #
+    #         if includeCW:
+    #             for i in prange(0,x0.Npsr):
+    #                 m_pos = 0.
+    #                 n_pos = 0.
+    #                 cosMu = 0.
+    #                 for j in range(0,3):
+    #                     m_pos += m[j]*pos[i,j]
+    #                     n_pos += n[j]*pos[i,j]
+    #                     cosMu -= omhat[j]*pos[i,j]
+    #                 #m_pos = np.dot(m, pos[i])
+    #                 #n_pos = np.dot(n, pos[i])
+    #                 #cosMu = -np.dot(omhat, pos[i])
+    #
+    #                 F_p = 0.5 * (m_pos ** 2 - n_pos ** 2) / (1 - cosMu)
+    #                 F_c = (m_pos * n_pos) / (1 - cosMu)
+    #
+    #                 p_dist = (pdist[i,0] + pdist[i,1]*x0.cw_p_dists[i])*(const.kpc/const.c)
+    #
+    #                 w0 = np.pi * fgw
+    #                 omega_p0 = w0 *(1 + 256/5 * mc**(5/3) * w0**(8/3) * p_dist*(1-cosMu))**(-3/8)
+    #
+    #                 amp_psr = amp * (w0/omega_p0)**(1.0/3.0)
+    #                 phase0_psr = x0.cw_p_phases[i]
+    #
+    #                 cos_phase0_psr = np.cos(x0.phase0+phase0_psr*2.0)
+    #                 sin_phase0_psr = np.sin(x0.phase0+phase0_psr*2.0)
+    #
+    #                 sigma[0] =  amp*(   cos_phase0 * (1+x0.cos_inc**2) * (-cos_2psi * F_p + sin_2psi * F_c) +    #Earth term sine
+    #                                   2*sin_phase0 *     x0.cos_inc    * (+sin_2psi * F_p + cos_2psi * F_c)   )
+    #                 sigma[1] =  amp*(   sin_phase0 * (1+x0.cos_inc**2) * (-cos_2psi * F_p + sin_2psi * F_c) +    #Earth term cosine
+    #                                   2*cos_phase0 *     x0.cos_inc    * (-sin_2psi * F_p - cos_2psi * F_c)   )
+    #                 sigma[2] =  -amp_psr*(   cos_phase0_psr * (1+x0.cos_inc**2) * (-cos_2psi * F_p + sin_2psi * F_c) +    #Pulsar term sine
+    #                                   2*sin_phase0_psr *     x0.cos_inc    * (+sin_2psi * F_p + cos_2psi * F_c)   )
+    #                 sigma[3] =  -amp_psr*(   sin_phase0_psr * (1+x0.cos_inc**2) * (-cos_2psi * F_p + sin_2psi * F_c) +    #Pulsar term cosine
+    #                                   2*cos_phase0_psr *     x0.cos_inc    * (-sin_2psi * F_p - cos_2psi * F_c)   )
+    #
+    #                 for j in range(0,4):
+    #                     log_L += sigma[j]*NN[i,j]
+    #
+    #                 prodMMPart = 0.
+    #                 for j in range(0,4):
+    #                     for k in range(0,4):
+    #                         prodMMPart += sigma[j]*MMs[i,j,k]*sigma[k]
+    #
+    #                 log_L -= prodMMPart/2#np.dot(sigma,np.dot(MMs[i],sigma))/2
+    #
+    #        return log_L
