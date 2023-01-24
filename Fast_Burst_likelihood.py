@@ -27,6 +27,8 @@ class FastBurst:
         self.Npsr = Npsr
         self.params = params
 
+        self.TNTs = self.pta.get_TNT(self.params)
+        self.Ts = self.pta.get_basis() 
         self.Nmats = self.get_Nmats()
 
         self.MMs = np.zeros((Npsr,2,2))
@@ -37,16 +39,6 @@ class FastBurst:
         '''used self.pta.params instead if self.params, might have been wrong'''
         self.Nvecs = List(self.pta.get_ndiag(self.params))
         print('Nvecs arary: ', self.Nvecs)
-        #get the part of the determinant that can be computed right now
-        '''what does this function actualy return'''
-        # self.logdet = 0.0
-        # for (l,m) in self.pta.get_rNr_logdet(self.params):
-        #     self.logdet += m
-        # #self.logdet += np.sum([m for (l,m) in self.pta.get_rNr_logdet(self.params)])
-        # print(-0.5*self.logdet)
-        #get the other pta results
-        self.TNTs = self.pta.get_TNT(self.params)
-        Ts = self.pta.get_basis()
 
         #invchol_Sigma_Ts = List()
         self.Nrs = List()
@@ -77,7 +69,7 @@ class FastBurst:
 
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,Ts[i].T,lower_a=True,trans_a=False)
+            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[i].T,lower_a=True,trans_a=False)
             invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[i])))
 
             logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)#2 * np.sum(np.log(np.diag(chol_Sigma)))
@@ -85,44 +77,42 @@ class FastBurst:
             #add the necessary component to logdet
             logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
             print('logdet_phi: ',logdetphi_loc)
-            print('logdet_sigma',logdet_Sigma_loc)
+            print('logdet_sigma: ',logdet_Sigma_loc)
 
             invCholSigmaTN = invchol_Sigma_TNs[i]
             SigmaTNrProd = np.dot(invCholSigmaTN,self.Nrs[i])
 
             dotSigmaTNr[i] = np.dot(SigmaTNrProd.T,SigmaTNrProd)
+            print('dotSigmaTNr: ',dotSigmaTNr[i])
 
         self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
 
-    def get_M_N(self, f0, tau, t0):
+    def get_M_N(self, f0, tau, t0, glitch_idx):
         #call the enterprise inner product
 
-        phiinvs = self.pta.get_phiinv(self.params, logdet=False)
-        TNTs = self.pta.get_TNT(self.params)
-        Ts = self.pta.get_basis()
+        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition')
 
         print('Input time: ', t0/86400)
 
         for ii in range(self.Npsr):
 
-            TNT = TNTs[ii]
-            T = Ts[ii]
+            TNT = self.TNTs[ii]
+            T = self.Ts[ii]
             phiinv = phiinvs[ii]
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
 
             Nmat = self.Nmats[ii]
             #filter fuctions
-            Filt_cos = np.zeros(len(self.psrs[ii].toas))
-            Filt_sin = np.zeros(len(self.psrs[ii].toas))
-
-            print('Per pulsar toas: ', self.toas[ii]/86400)
+            Filt_cos = np.zeros(len(self.toas[ii]))
+            Filt_sin = np.zeros(len(self.toas[ii]))
             #Single noise transient wavelet
-            Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0))
-            Filt_sin = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.sin(2*np.pi*f0*(self.toas[ii] - t0))
+            if (ii-0.5 <= glitch_idx <= ii+0.5):
+                Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0))
+                Filt_sin = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.sin(2*np.pi*f0*(self.toas[ii] - t0))
             print('Cosine: ', Filt_cos)
             print('Sine: ', Filt_sin)
-            print('Exponential: ', -((self.psrs[ii].toas - t0)/tau)**2)
+            #print('Exponential: ', -((self.psrs[ii].toas - t0)/tau)**2)
             #do dot product
             #populate MM,NN
             '''
@@ -132,9 +122,10 @@ class FastBurst:
             self.MMs[ii, 1, 0] = FeStat.innerProduct_rr(Filt_sin, Filt_cos,Nmat,T,Sigma)
             self.MMs[ii, 0, 1] = FeStat.innerProduct_rr(Filt_cos, Filt_sin,Nmat,T,Sigma)
             self.MMs[ii, 1, 1] = FeStat.innerProduct_rr(Filt_sin, Filt_sin,Nmat,T,Sigma)
-
-            self.NN[ii, 0] = FeStat.innerProduct_rr(Filt_cos,self.psrs[ii].residuals,Nmat,T,Sigma)
-            self.NN[ii, 1] = FeStat.innerProduct_rr(Filt_sin,self.psrs[ii].residuals,Nmat,T,Sigma)
+            print('MM matrix:', self.MMs)
+            self.NN[ii, 0] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma)
+            self.NN[ii, 1] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma)
+            print('NN matrix:', self.NN)
 
 
     def get_sigmas(self, A, phi0):
@@ -145,12 +136,12 @@ class FastBurst:
 
     def get_Nmats(self):
         '''Makes the Nmatrix used in the fstatistic'''
-        TNTs = self.pta.get_TNT(self.params)
+        TNTs = self.TNTs
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition')
         # Get noise parameters for pta toaerr**2
         Nvecs = self.pta.get_ndiag(self.params)
         # Get the basis matrix
-        Ts = self.pta.get_basis(self.params)
+        Ts = self.Ts
 
         Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)]
 
@@ -176,7 +167,7 @@ class FastBurst:
         print('New sigma: ', self.sigma)
 
         print('Old M and N: ', self.MMs[0, :, :], self.NN[0, :])
-        self.get_M_N(f0,tau,t0)
+        self.get_M_N(f0,tau,t0,glitch_idx)
         print('New M and N: ', self.MMs[0, :, :], self.NN[0, :])
         LogL = 0
         '''
@@ -193,11 +184,9 @@ class FastBurst:
         LogL += -1/2*self.resres_logdet
         print('adding in resres_logdet', LogL)
         for i in range(len(self.psrs)):
-            #if statments to only include the glitch in the pulsar it is assigned to
-            if (i-0.5 <= glitch_idx <= i+0.5):
-                print('adding the signal at {0}'.format(i))
-                LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
-                LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
+            LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
+            LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
+            print('LogL: ', LogL)
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
