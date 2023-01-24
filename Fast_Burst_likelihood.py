@@ -28,7 +28,7 @@ class FastBurst:
         self.params = params
 
         self.TNTs = self.pta.get_TNT(self.params)
-        self.Ts = self.pta.get_basis() 
+        self.Ts = self.pta.get_basis()
         self.Nmats = self.get_Nmats()
 
         self.MMs = np.zeros((Npsr,2,2))
@@ -118,6 +118,7 @@ class FastBurst:
             '''
             MMs = matrix of size (Npsr, N_filters, N_filters) that is defined as the dot product between filter functions
             '''
+            '''
             self.MMs[ii, 0, 0] = FeStat.innerProduct_rr(Filt_cos,Filt_cos,Nmat,T,Sigma)
             self.MMs[ii, 1, 0] = FeStat.innerProduct_rr(Filt_sin, Filt_cos,Nmat,T,Sigma)
             self.MMs[ii, 0, 1] = FeStat.innerProduct_rr(Filt_cos, Filt_sin,Nmat,T,Sigma)
@@ -125,6 +126,15 @@ class FastBurst:
             print('MM matrix:', self.MMs)
             self.NN[ii, 0] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma)
             self.NN[ii, 1] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma)
+            print('NN matrix:', self.NN)
+            '''
+            self.MMs[ii, 0, 0] = self.dot_product(Filt_cos,Filt_cos,Nmat,T,Sigma,ii)
+            self.MMs[ii, 1, 0] = self.dot_product(Filt_sin, Filt_cos,Nmat,T,Sigma,ii)
+            self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,Nmat,T,Sigma,ii)
+            self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,Nmat,T,Sigma,ii)
+            print('MM matrix:', self.MMs)
+            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma,ii)
+            self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma,ii)
             print('NN matrix:', self.NN)
 
 
@@ -146,6 +156,38 @@ class FastBurst:
         Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)]
 
         return Nmats
+
+    def dot_product(self, a, b, Nmat, T, Sigma, psr_idx):
+
+        dot_prod = 0
+
+        pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
+
+        invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
+        dotSigmaTNr = 0
+
+        #first term in the dot product
+        aNb = np.dot(np.dot(a, Nmat), b)
+
+        phiinv_loc,logdetphi_loc = pls_temp[psr_idx]
+
+        '''may need special case when phiinv_loc.ndim=1'''
+        Sigma = self.TNTs[psr_idx] + phiinv_loc
+
+        #mutate inplace to avoid memory allocation overheads
+        chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+        invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[psr_idx].T,lower_a=True,trans_a=False)
+        invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[psr_idx])))
+
+        invCholSigmaTN = invchol_Sigma_TNs[0]
+        SigmaTNaProd = np.dot(invCholSigmaTN,a)
+        SigmaTNbProd = np.dot(invCholSigmaTN,b)
+
+        dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
+
+        dot_prod = aNb - dotSigmaTNr
+        print(dot_prod)
+        return dot_prod
 
     def get_lnlikelihood(self, A, phi0, f0, tau, t0, glitch_idx):
         print('Amplitude: ', A)
