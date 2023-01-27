@@ -10,6 +10,7 @@ from lapack_wrappers import solve_triangular
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
+import memory_profiler as mp
 
 #########
 #strucutre overview
@@ -26,6 +27,9 @@ class FastBurst:
         self.psrs = psrs
         self.Npsr = Npsr
         self.params = params
+        '''used self.pta.params instead if self.params, might have been wrong'''
+        self.Nvecs = List(self.pta.get_ndiag(self.params))
+        print('Nvecs arary: ', self.Nvecs)
 
         self.TNTs = self.pta.get_TNT(self.params)
         self.Ts = self.pta.get_basis()
@@ -35,11 +39,6 @@ class FastBurst:
         self.NN = np.zeros((Npsr,2))
 
         self.sigma = np.zeros(2)
-
-        '''used self.pta.params instead if self.params, might have been wrong'''
-        self.Nvecs = List(self.pta.get_ndiag(self.params))
-        print('Nvecs arary: ', self.Nvecs)
-
         #invchol_Sigma_Ts = List()
         self.Nrs = List()
         self.isqrNvecs = List()
@@ -60,12 +59,14 @@ class FastBurst:
         invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
 
         dotSigmaTNr = np.zeros(self.Npsr)
+
+        @profile
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
 
             '''may need special case when phiinv_loc.ndim=1'''
-            Sigma = self.TNTs[i]+phiinv_loc
+            Sigma = self.TNTs[i]+phiinv_loc[i]
 
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
@@ -87,7 +88,7 @@ class FastBurst:
 
         self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
-
+    @profile
     def get_M_N(self, f0, tau, t0, glitch_idx):
         #call the enterprise inner product
 
@@ -133,30 +134,32 @@ class FastBurst:
             self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,Nmat,T,Sigma,ii)
             self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,Nmat,T,Sigma,ii)
             print('MM matrix:', self.MMs)
-            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma,ii)
+            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
             self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma,ii)
+            # self.NN[ii, 0] = self.dot_product(self.Nrs[ii],Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
+            # self.NN[ii, 1] = self.dot_product(self.Nrs[ii],Filt_sin,Nmat,T,Sigma,ii)
             print('NN matrix:', self.NN)
 
 
     def get_sigmas(self, A, phi0):
 
-        #expects
+        #noise transient coefficients
         self.sigma[0] = A*np.cos(phi0)
         self.sigma[1] = -A*np.sin(phi0)
-
+    @profile
     def get_Nmats(self):
         '''Makes the Nmatrix used in the fstatistic'''
         TNTs = self.TNTs
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition')
         # Get noise parameters for pta toaerr**2
-        Nvecs = self.pta.get_ndiag(self.params)
+        #Nvecs = self.pta.get_ndiag(self.params)
         # Get the basis matrix
         Ts = self.Ts
 
-        Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)]
+        Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, self.Nvecs, Ts)]
 
         return Nmats
-
+    @profile
     def dot_product(self, a, b, Nmat, T, Sigma, psr_idx):
 
         dot_prod = 0
@@ -188,7 +191,7 @@ class FastBurst:
         dot_prod = aNb - dotSigmaTNr
         print(dot_prod)
         return dot_prod
-
+    @profile
     def get_lnlikelihood(self, A, phi0, f0, tau, t0, glitch_idx):
         print('Amplitude: ', A)
         print('Frequency: ', f0)
@@ -232,6 +235,7 @@ class FastBurst:
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
+@profile
 def make_Nmat(phiinv, TNT, Nvec, T):
 
     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
@@ -248,7 +252,7 @@ def make_Nmat(phiinv, TNT, Nvec, T):
 
     # An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
     return Ndiag - np.dot(TtN.T, expval2)
-
+@profile
 @njit(parallel=True,fastmath=True)
 def logdet_Sigma_helper(chol_Sigma):
     """get logdet sigma from cholesky"""
