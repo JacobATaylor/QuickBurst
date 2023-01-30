@@ -10,7 +10,7 @@ from lapack_wrappers import solve_triangular
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
-import memory_profiler as mp
+import memory_profiler as profile
 
 #########
 #strucutre overview
@@ -60,7 +60,7 @@ class FastBurst:
 
         dotSigmaTNr = np.zeros(self.Npsr)
 
-        @profile
+        #@profile
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
@@ -88,7 +88,7 @@ class FastBurst:
 
         self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
-    @profile
+    #@profile
     def get_M_N(self, f0, tau, t0, glitch_idx):
         #call the enterprise inner product
 
@@ -146,7 +146,7 @@ class FastBurst:
         #noise transient coefficients
         self.sigma[0] = A*np.cos(phi0)
         self.sigma[1] = -A*np.sin(phi0)
-    @profile
+    #@profile
     def get_Nmats(self):
         '''Makes the Nmatrix used in the fstatistic'''
         TNTs = self.TNTs
@@ -159,7 +159,7 @@ class FastBurst:
         Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, self.Nvecs, Ts)]
 
         return Nmats
-    @profile
+    #@profile
     def dot_product(self, a, b, Nmat, T, Sigma, psr_idx):
 
         dot_prod = 0
@@ -191,7 +191,7 @@ class FastBurst:
         dot_prod = aNb - dotSigmaTNr
         print(dot_prod)
         return dot_prod
-    @profile
+    #@profile
     def get_lnlikelihood(self, A, phi0, f0, tau, t0, glitch_idx):
         print('Amplitude: ', A)
         print('Frequency: ', f0)
@@ -235,7 +235,7 @@ class FastBurst:
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
-@profile
+#@profile
 def make_Nmat(phiinv, TNT, Nvec, T):
 
     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
@@ -252,7 +252,7 @@ def make_Nmat(phiinv, TNT, Nvec, T):
 
     # An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
     return Ndiag - np.dot(TtN.T, expval2)
-@profile
+#@profile
 @njit(parallel=True,fastmath=True)
 def logdet_Sigma_helper(chol_Sigma):
     """get logdet sigma from cholesky"""
