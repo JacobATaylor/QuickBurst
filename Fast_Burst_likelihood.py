@@ -10,7 +10,8 @@ from lapack_wrappers import solve_triangular
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
-import memory_profiler as profile
+
+from memory_profiler import profile
 
 #########
 #strucutre overview
@@ -21,6 +22,7 @@ import memory_profiler as profile
 ########
 
 class FastBurst:
+    #@profile
     def __init__(self,pta,psrs,params,Npsr, tref):
 
         self.pta = pta
@@ -33,6 +35,7 @@ class FastBurst:
 
         self.TNTs = self.pta.get_TNT(self.params)
         self.Ts = self.pta.get_basis()
+        self.Nmats = 0
         self.Nmats = self.get_Nmats()
 
         self.MMs = np.zeros((Npsr,2,2))
@@ -51,7 +54,7 @@ class FastBurst:
             self.Nrs.append(self.residuals[i]/np.sqrt(self.Nvecs[i]))
 
         self.resres_logdet = np.sum([ell for ell in self.pta.get_rNr_logdet(params)])
-        print(-0.5*self.resres_logdet)
+        #print(-0.5*self.resres_logdet)
 
         logdet_array = np.zeros(self.Npsr)
         pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
@@ -60,7 +63,6 @@ class FastBurst:
 
         dotSigmaTNr = np.zeros(self.Npsr)
 
-        #@profile
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
@@ -77,14 +79,14 @@ class FastBurst:
 
             #add the necessary component to logdet
             logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
-            print('logdet_phi: ',logdetphi_loc)
-            print('logdet_sigma: ',logdet_Sigma_loc)
+            #print('logdet_phi: ',logdetphi_loc)
+            #print('logdet_sigma: ',logdet_Sigma_loc)
 
             invCholSigmaTN = invchol_Sigma_TNs[i]
             SigmaTNrProd = np.dot(invCholSigmaTN,self.Nrs[i])
 
             dotSigmaTNr[i] = np.dot(SigmaTNrProd.T,SigmaTNrProd)
-            print('dotSigmaTNr: ',dotSigmaTNr[i])
+            #print('dotSigmaTNr: ',dotSigmaTNr[i])
 
         self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
@@ -146,7 +148,7 @@ class FastBurst:
         #noise transient coefficients
         self.sigma[0] = A*np.cos(phi0)
         self.sigma[1] = -A*np.sin(phi0)
-    #@profile
+    @profile
     def get_Nmats(self):
         '''Makes the Nmatrix used in the fstatistic'''
         TNTs = self.TNTs
@@ -171,6 +173,7 @@ class FastBurst:
 
         #first term in the dot product
         aNb = np.dot(np.dot(a, Nmat), b)
+        '''this is the only place we use Nmat, every other aNb looks like it uses Nvec'''
 
         phiinv_loc,logdetphi_loc = pls_temp[psr_idx]
 
@@ -235,7 +238,7 @@ class FastBurst:
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
-#@profile
+@profile
 def make_Nmat(phiinv, TNT, Nvec, T):
 
     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
