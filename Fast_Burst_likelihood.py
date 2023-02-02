@@ -53,11 +53,17 @@ class FastBurst:
         for i in range(self.Npsr):
             self.Nrs.append(self.residuals[i]/np.sqrt(self.Nvecs[i]))
 
-        self.resres_logdet = np.sum([ell for ell in self.pta.get_rNr_logdet(params)])
+        self.logdet = 0
+        for (l,m) in self.pta.get_rNr_logdet(params): #can't keep the rNr term as it removes the deterministic signal already
+            self.logdet += m
+
+        #self.resres_logdet = np.sum([ell for ell in self.pta.get_rNr_logdet(params)])
         #print(-0.5*self.resres_logdet)
+        rNr_loc = np.zeros(self.Npsr)
 
         logdet_array = np.zeros(self.Npsr)
         pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
+        print(pls_temp)
 
         invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
 
@@ -66,9 +72,14 @@ class FastBurst:
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
+            print(phiinv_loc)
+
+            Ndiag = np.diag(1/self.Nvecs[i])
+            #first term in the dot product
+            rNr_loc[i] = np.dot(np.dot(self.psrs[i].residuals, Ndiag), self.psrs[i].residuals)
 
             '''may need special case when phiinv_loc.ndim=1'''
-            Sigma = self.TNTs[i]+phiinv_loc[i]
+            Sigma = self.TNTs[i]+phiinv_loc#[i]
 
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
@@ -88,7 +99,7 @@ class FastBurst:
             dotSigmaTNr[i] = np.dot(SigmaTNrProd.T,SigmaTNrProd)
             #print('dotSigmaTNr: ',dotSigmaTNr[i])
 
-        self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
+        self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
     #@profile
     def get_M_N(self, f0, tau, t0, glitch_idx):
@@ -113,8 +124,8 @@ class FastBurst:
             if (ii-0.5 <= glitch_idx <= ii+0.5):
                 Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0))
                 Filt_sin = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.sin(2*np.pi*f0*(self.toas[ii] - t0))
-            print('Cosine: ', Filt_cos)
-            print('Sine: ', Filt_sin)
+            #print('Cosine: ', Filt_cos)
+            #print('Sine: ', Filt_sin)
             #print('Exponential: ', -((self.psrs[ii].toas - t0)/tau)**2)
             #do dot product
             #populate MM,NN
@@ -135,12 +146,12 @@ class FastBurst:
             self.MMs[ii, 1, 0] = self.dot_product(Filt_sin, Filt_cos,Nmat,T,Sigma,ii)
             self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,Nmat,T,Sigma,ii)
             self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,Nmat,T,Sigma,ii)
-            print('MM matrix:', self.MMs)
+            #print('MM matrix:', self.MMs)
             self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
             self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma,ii)
             # self.NN[ii, 0] = self.dot_product(self.Nrs[ii],Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
             # self.NN[ii, 1] = self.dot_product(self.Nrs[ii],Filt_sin,Nmat,T,Sigma,ii)
-            print('NN matrix:', self.NN)
+            #print('NN matrix:', self.NN)
 
 
     def get_sigmas(self, A, phi0):
@@ -148,7 +159,7 @@ class FastBurst:
         #noise transient coefficients
         self.sigma[0] = A*np.cos(phi0)
         self.sigma[1] = -A*np.sin(phi0)
-    @profile
+    #@profile
     def get_Nmats(self):
         '''Makes the Nmatrix used in the fstatistic'''
         TNTs = self.TNTs
@@ -171,8 +182,10 @@ class FastBurst:
         invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
         dotSigmaTNr = 0
 
+        Ndiag = np.diag(1/self.Nvecs[psr_idx])
         #first term in the dot product
-        aNb = np.dot(np.dot(a, Nmat), b)
+        aNb = np.dot(np.dot(a, Ndiag), b)
+        #print(Ndiag)
         '''this is the only place we use Nmat, every other aNb looks like it uses Nvec'''
 
         phiinv_loc,logdetphi_loc = pls_temp[psr_idx]
@@ -192,12 +205,12 @@ class FastBurst:
         dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
 
         dot_prod = aNb - dotSigmaTNr
-        print(dot_prod)
+        #print(dot_prod)
         return dot_prod
     #@profile
     def get_lnlikelihood(self, A, phi0, f0, tau, t0, glitch_idx):
-        print('Amplitude: ', A)
-        print('Frequency: ', f0)
+        #print('Amplitude: ', A)
+        #print('Frequency: ', f0)
         """Function to do likelihood evaluations in QuickBurst, currently for a single noise transient wavelet"""
 
         '''
@@ -208,15 +221,15 @@ class FastBurst:
         '''
         self.NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
         '''
-        print('glitch_index: ', glitch_idx)
+        #print('glitch_index: ', glitch_idx)
 
-        print('Old Sigma: ', self.sigma)
+        #print('Old Sigma: ', self.sigma)
         self.get_sigmas(A, phi0)
-        print('New sigma: ', self.sigma)
+        #print('New sigma: ', self.sigma)
 
-        print('Old M and N: ', self.MMs[0, :, :], self.NN[0, :])
+        #print('Old M and N: ', self.MMs[0, :, :], self.NN[0, :])
         self.get_M_N(f0,tau,t0,glitch_idx)
-        print('New M and N: ', self.MMs[0, :, :], self.NN[0, :])
+        #print('New M and N: ', self.MMs[0, :, :], self.NN[0, :])
         LogL = 0
         '''
         ######Understanding the components of logdet######
@@ -238,7 +251,7 @@ class FastBurst:
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
-@profile
+#@profile
 def make_Nmat(phiinv, TNT, Nvec, T):
 
     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)

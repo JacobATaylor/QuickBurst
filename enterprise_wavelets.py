@@ -177,13 +177,13 @@ def glitch_delay(toas, theta, phi,
     if rounded_idx<0 or rounded_idx>=len(pulsars): #this is an error of being outside prior range, but prior will handle that, we just need to avoid an indexing error here
         return toas*0.0
     else: #go ahead as usual
-        print(rounded_idx)
+        #print(rounded_idx)
         desired_theta = pulsars[rounded_idx].theta
         desired_phi = pulsars[rounded_idx].phi
-        print(desired_theta)
-        print(desired_phi)
-        print('real theta',theta)
-        print('real phi',phi)
+        # print(desired_theta)
+        # print(desired_phi)
+        # print('real theta',theta)
+        # print('real phi',phi)
 
         if theta==desired_theta and phi==desired_phi: #it is the selected pulsar
             # convert units
@@ -197,8 +197,8 @@ def glitch_delay(toas, theta, phi,
             f0 = 10**log10_f0
 
             res = Amp * np.exp(-(toas-t0)**2/tau**2) * np.cos(2*np.pi*f0*(toas-t0) + phase0)
-            print('idx not error')
+            #print('idx not error')
             return res
         else: #it is not the selected pulsar
-            print('wrong pulsar')
+            #print('wrong pulsar')
             return toas*0.0
