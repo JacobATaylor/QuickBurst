@@ -1,4 +1,4 @@
-"""C 2022 Jacob, Rand, and Bence fast Burst likelihood"""
+"""C 2023 Jacob, Rand, and Bence fast Burst likelihood"""
 import numpy as np
 import numba as nb
 from numba import njit,prange
@@ -31,12 +31,12 @@ class FastBurst:
         self.params = params
         '''used self.pta.params instead if self.params, might have been wrong'''
         self.Nvecs = List(self.pta.get_ndiag(self.params))
-        print('Nvecs arary: ', self.Nvecs)
+        #print('Nvecs arary: ', self.Nvecs)
 
         self.TNTs = self.pta.get_TNT(self.params)
         self.Ts = self.pta.get_basis()
-        self.Nmats = 0
-        self.Nmats = self.get_Nmats()
+        #self.Nmats = 0
+        #self.Nmats = self.get_Nmats()
 
         self.MMs = np.zeros((Npsr,2,2))
         self.NN = np.zeros((Npsr,2))
@@ -63,7 +63,7 @@ class FastBurst:
 
         logdet_array = np.zeros(self.Npsr)
         pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
-        print(pls_temp)
+        #print(pls_temp)
 
         invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
 
@@ -72,7 +72,7 @@ class FastBurst:
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
-            print(phiinv_loc)
+            #print(phiinv_loc)
 
             Ndiag = np.diag(1/self.Nvecs[i])
             #first term in the dot product
@@ -84,7 +84,7 @@ class FastBurst:
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[i].T,lower_a=True,trans_a=False)
-            invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[i])))
+            invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[i]))) #half of the Nvecs here, other half in Nrs
 
             logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)#2 * np.sum(np.log(np.diag(chol_Sigma)))
 
@@ -94,12 +94,14 @@ class FastBurst:
             #print('logdet_sigma: ',logdet_Sigma_loc)
 
             invCholSigmaTN = invchol_Sigma_TNs[i]
-            SigmaTNrProd = np.dot(invCholSigmaTN,self.Nrs[i])
+            SigmaTNrProd1 = np.dot(invCholSigmaTN,self.Nrs[i])
+            SigmaTNrProd2 = np.dot(invCholSigmaTN,self.Nrs[i])
 
-            dotSigmaTNr[i] = np.dot(SigmaTNrProd.T,SigmaTNrProd)
+            dotSigmaTNr[i] = np.dot(SigmaTNrProd2.T,SigmaTNrProd1)
             #print('dotSigmaTNr: ',dotSigmaTNr[i])
 
         self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array) - np.sum(dotSigmaTNr)
+        #self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
         print(-0.5*self.resres_logdet)
     #@profile
     def get_M_N(self, f0, tau, t0, glitch_idx):
@@ -116,7 +118,7 @@ class FastBurst:
             phiinv = phiinvs[ii]
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
 
-            Nmat = self.Nmats[ii]
+            #Nmat = self.Nmats[ii]
             #filter fuctions
             Filt_cos = np.zeros(len(self.toas[ii]))
             Filt_sin = np.zeros(len(self.toas[ii]))
@@ -142,15 +144,15 @@ class FastBurst:
             self.NN[ii, 1] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma)
             print('NN matrix:', self.NN)
             '''
-            self.MMs[ii, 0, 0] = self.dot_product(Filt_cos,Filt_cos,Nmat,T,Sigma,ii)
-            self.MMs[ii, 1, 0] = self.dot_product(Filt_sin, Filt_cos,Nmat,T,Sigma,ii)
-            self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,Nmat,T,Sigma,ii)
-            self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,Nmat,T,Sigma,ii)
+            self.MMs[ii, 0, 0] = self.dot_product(Filt_cos,Filt_cos,T,Sigma,ii)
+            self.MMs[ii, 1, 0] = self.dot_product(Filt_sin, Filt_cos,T,Sigma,ii)
+            self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,T,Sigma,ii)
+            self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,T,Sigma,ii)
             #print('MM matrix:', self.MMs)
-            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
-            self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma,ii)
-            # self.NN[ii, 0] = self.dot_product(self.Nrs[ii],Filt_cos,Nmat,T,Sigma,ii)#self.psrs[ii].residuals
-            # self.NN[ii, 1] = self.dot_product(self.Nrs[ii],Filt_sin,Nmat,T,Sigma,ii)
+            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,T,Sigma,ii)#self.psrs[ii].residuals
+            self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,T,Sigma,ii)
+            #self.NN[ii, 0] = self.dot_product(self.Nrs[ii],Filt_cos,T,Sigma,ii)#self.psrs[ii].residuals
+            #self.NN[ii, 1] = self.dot_product(self.Nrs[ii],Filt_sin,T,Sigma,ii)
             #print('NN matrix:', self.NN)
 
 
@@ -173,7 +175,7 @@ class FastBurst:
 
         return Nmats
     #@profile
-    def dot_product(self, a, b, Nmat, T, Sigma, psr_idx):
+    def dot_product(self, a, b, T, Sigma, psr_idx):
 
         dot_prod = 0
 
@@ -196,13 +198,22 @@ class FastBurst:
         #mutate inplace to avoid memory allocation overheads
         chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
         invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[psr_idx].T,lower_a=True,trans_a=False)
-        invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[psr_idx])))
+        invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/self.Nvecs[psr_idx]))
 
         invCholSigmaTN = invchol_Sigma_TNs[0]
         SigmaTNaProd = np.dot(invCholSigmaTN,a)
         SigmaTNbProd = np.dot(invCholSigmaTN,b)
+        '''
+        dotTNa = self.Ts[psr_idx].T/np.sqrt(self.Nvecs[psr_idx])*a
+        SigmaTNaProd = solve_triangular(chol_Sigma,dotTNa,lower_a=True,trans_a=False,overwrite_b=True)
+
+        dotTNb = self.Ts[psr_idx].T/np.sqrt(self.Nvecs[psr_idx])*b
+        SigmaTNbProd = solve_triangular(chol_Sigma,dotTNb,lower_a=True,trans_a=False,overwrite_b=True)
+        '''
 
         dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
+        #dotSigmaTNr = SigmaTNaProd*SigmaTNbProd
+        #print('SigmaTNbProd ',SigmaTNbProd)
 
         dot_prod = aNb - dotSigmaTNr
         #print(dot_prod)
@@ -244,10 +255,11 @@ class FastBurst:
         '''
         LogL += -1/2*self.resres_logdet
         print('adding in resres_logdet', LogL)
+
         for i in range(len(self.psrs)):
             LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
             LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
-            print('LogL: ', LogL)
+            #print('LogL: ', LogL)
         return LogL
 
 '''Tried moving Nmat calc outside the class to match Fe stat code'''
