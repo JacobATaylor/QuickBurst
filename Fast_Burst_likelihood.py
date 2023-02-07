@@ -4,14 +4,12 @@ import numba as nb
 from numba import njit,prange
 from numba.experimental import jitclass
 from numba.typed import List
-#import scipy.linalg
 import scipy.linalg as sl
 from lapack_wrappers import solve_triangular
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
-
-from memory_profiler import profile
+#from memory_profiler import profile
 
 #########
 #strucutre overview
@@ -22,94 +20,63 @@ from memory_profiler import profile
 ########
 
 class FastBurst:
-    #@profile
-    def __init__(self,pta,psrs,params,Npsr, tref):
+    #####
+    #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
+    #####
+    def __init__(self,pta,psrs,params,Npsr,tref):
 
+        #model parameters that shouldn't change for a run
         self.pta = pta
         self.psrs = psrs
         self.Npsr = Npsr
         self.params = params
-        '''used self.pta.params instead if self.params, might have been wrong'''
+        #important matrixies
         self.Nvecs = List(self.pta.get_ndiag(self.params))
-        #print('Nvecs arary: ', self.Nvecs)
-
         self.TNTs = self.pta.get_TNT(self.params)
         self.Ts = self.pta.get_basis()
-        #self.Nmats = 0
-        #self.Nmats = self.get_Nmats()
-
-        self.MMs = np.zeros((Npsr,2,2))
-        self.NN = np.zeros((Npsr,2))
-
-        self.sigma = np.zeros(2)
-        #invchol_Sigma_Ts = List()
-        self.Nrs = List()
-        self.isqrNvecs = List()
-
 
         self.toas = List([psr.toas - tref for psr in psrs])
         self.residuals = List([psr.residuals for psr in psrs])
 
-        for i in range(self.Npsr):
-            self.Nrs.append(self.residuals[i]/np.sqrt(self.Nvecs[i]))
-
         self.logdet = 0
-        for (l,m) in self.pta.get_rNr_logdet(params): #can't keep the rNr term as it removes the deterministic signal already
+        for (l,m) in self.pta.get_rNr_logdet(params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
             self.logdet += m
 
-        #self.resres_logdet = np.sum([ell for ell in self.pta.get_rNr_logdet(params)])
-        #print(-0.5*self.resres_logdet)
+        #generate arrays to store res|res and logdet(2*Pi*N) terms
         rNr_loc = np.zeros(self.Npsr)
-
         logdet_array = np.zeros(self.Npsr)
         pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
-        #print(pls_temp)
-
-        invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
-
-        dotSigmaTNr = np.zeros(self.Npsr)
 
         for i in range(self.Npsr):
 
             phiinv_loc,logdetphi_loc = pls_temp[i]
-            #print(phiinv_loc)
+            TNT = self.TNTs[i]
+            T = self.Ts[i]
+            Sigma = self.TNTs[i]+phiinv_loc
 
-            Ndiag = np.diag(1/self.Nvecs[i])
             #first term in the dot product
-            rNr_loc[i] = np.dot(np.dot(self.psrs[i].residuals, Ndiag), self.psrs[i].residuals)
-
-            '''may need special case when phiinv_loc.ndim=1'''
-            Sigma = self.TNTs[i]+phiinv_loc#[i]
+            rNr_loc[i] = dot_product(self.residuals[i],self.residuals[i],phiinv_loc,T,TNT,Sigma,self.Nvecs[i])
 
             #mutate inplace to avoid memory allocation overheads
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[i].T,lower_a=True,trans_a=False)
-            invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/np.sqrt(self.Nvecs[i]))) #half of the Nvecs here, other half in Nrs
-
-            logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)#2 * np.sum(np.log(np.diag(chol_Sigma)))
-
+            logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
             #add the necessary component to logdet
             logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
-            #print('logdet_phi: ',logdetphi_loc)
-            #print('logdet_sigma: ',logdet_Sigma_loc)
 
-            invCholSigmaTN = invchol_Sigma_TNs[i]
-            SigmaTNrProd1 = np.dot(invCholSigmaTN,self.Nrs[i])
-            SigmaTNrProd2 = np.dot(invCholSigmaTN,self.Nrs[i])
+        #Non-signal dependent terms
+        self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array)
 
-            dotSigmaTNr[i] = np.dot(SigmaTNrProd2.T,SigmaTNrProd1)
-            #print('dotSigmaTNr: ',dotSigmaTNr[i])
+        #singal model terms to be populated as we go
+        self.MMs = np.zeros((Npsr,2,2))
+        self.NN = np.zeros((Npsr,2))
+        self.sigma = np.zeros(2)
 
-        self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array) - np.sum(dotSigmaTNr)
-        #self.resres_logdet = self.resres_logdet + np.sum(logdet_array) - np.sum(dotSigmaTNr)
-        print(-0.5*self.resres_logdet)
-    #@profile
+    #####
+    #generates the MM and NN matrixies from filter functions
+    #####
     def get_M_N(self, f0, tau, t0, glitch_idx):
-        #call the enterprise inner product
 
-        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition')
-
-        print('Input time: ', t0/86400)
+        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
 
         for ii in range(self.Npsr):
 
@@ -118,169 +85,64 @@ class FastBurst:
             phiinv = phiinvs[ii]
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
 
-            #Nmat = self.Nmats[ii]
             #filter fuctions
             Filt_cos = np.zeros(len(self.toas[ii]))
             Filt_sin = np.zeros(len(self.toas[ii]))
+
             #Single noise transient wavelet
-            if (ii-0.5 <= glitch_idx <= ii+0.5):
-                Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0))
+            if (ii-0.5 <= glitch_idx <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
+                Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0)) #see PDF for derivation
                 Filt_sin = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.sin(2*np.pi*f0*(self.toas[ii] - t0))
-            #print('Cosine: ', Filt_cos)
-            #print('Sine: ', Filt_sin)
-            #print('Exponential: ', -((self.psrs[ii].toas - t0)/tau)**2)
-            #do dot product
+
             #populate MM,NN
-            '''
-            MMs = matrix of size (Npsr, N_filters, N_filters) that is defined as the dot product between filter functions
-            '''
-            '''
-            self.MMs[ii, 0, 0] = FeStat.innerProduct_rr(Filt_cos,Filt_cos,Nmat,T,Sigma)
-            self.MMs[ii, 1, 0] = FeStat.innerProduct_rr(Filt_sin, Filt_cos,Nmat,T,Sigma)
-            self.MMs[ii, 0, 1] = FeStat.innerProduct_rr(Filt_cos, Filt_sin,Nmat,T,Sigma)
-            self.MMs[ii, 1, 1] = FeStat.innerProduct_rr(Filt_sin, Filt_sin,Nmat,T,Sigma)
-            print('MM matrix:', self.MMs)
-            self.NN[ii, 0] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_cos,Nmat,T,Sigma)
-            self.NN[ii, 1] = FeStat.innerProduct_rr(self.psrs[ii].residuals,Filt_sin,Nmat,T,Sigma)
-            print('NN matrix:', self.NN)
-            '''
-            self.MMs[ii, 0, 0] = self.dot_product(Filt_cos,Filt_cos,T,Sigma,ii)
-            self.MMs[ii, 1, 0] = self.dot_product(Filt_sin, Filt_cos,T,Sigma,ii)
-            self.MMs[ii, 0, 1] = self.dot_product(Filt_cos, Filt_sin,T,Sigma,ii)
-            self.MMs[ii, 1, 1] = self.dot_product(Filt_sin, Filt_sin,T,Sigma,ii)
-            #print('MM matrix:', self.MMs)
-            self.NN[ii, 0] = self.dot_product(self.psrs[ii].residuals,Filt_cos,T,Sigma,ii)#self.psrs[ii].residuals
-            self.NN[ii, 1] = self.dot_product(self.psrs[ii].residuals,Filt_sin,T,Sigma,ii)
-            #self.NN[ii, 0] = self.dot_product(self.Nrs[ii],Filt_cos,T,Sigma,ii)#self.psrs[ii].residuals
-            #self.NN[ii, 1] = self.dot_product(self.Nrs[ii],Filt_sin,T,Sigma,ii)
-            #print('NN matrix:', self.NN)
+            self.MMs[ii, 0, 0] = dot_product(Filt_cos, Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            self.MMs[ii, 1, 0] = dot_product(Filt_sin, Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            self.MMs[ii, 0, 1] = dot_product(Filt_cos, Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            self.MMs[ii, 1, 1] = dot_product(Filt_sin, Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
 
+            self.NN[ii, 0] = dot_product(self.residuals[ii],Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            self.NN[ii, 1] = dot_product(self.residuals[ii],Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
 
+    ######
+    #calculates amplitudes for Signals
+    ######
     def get_sigmas(self, A, phi0):
-
         #noise transient coefficients
         self.sigma[0] = A*np.cos(phi0)
         self.sigma[1] = -A*np.sin(phi0)
-    #@profile
-    def get_Nmats(self):
-        '''Makes the Nmatrix used in the fstatistic'''
-        TNTs = self.TNTs
-        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition')
-        # Get noise parameters for pta toaerr**2
-        #Nvecs = self.pta.get_ndiag(self.params)
-        # Get the basis matrix
-        Ts = self.Ts
 
-        Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, self.Nvecs, Ts)]
-
-        return Nmats
-    #@profile
-    def dot_product(self, a, b, T, Sigma, psr_idx):
-
-        dot_prod = 0
-
-        pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
-
-        invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
-        dotSigmaTNr = 0
-
-        Ndiag = np.diag(1/self.Nvecs[psr_idx])
-        #first term in the dot product
-        aNb = np.dot(np.dot(a, Ndiag), b)
-        #print(Ndiag)
-        '''this is the only place we use Nmat, every other aNb looks like it uses Nvec'''
-
-        phiinv_loc,logdetphi_loc = pls_temp[psr_idx]
-
-        '''may need special case when phiinv_loc.ndim=1'''
-        Sigma = self.TNTs[psr_idx] + phiinv_loc
-
-        #mutate inplace to avoid memory allocation overheads
-        chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-        invchol_Sigma_T_loc = solve_triangular(chol_Sigma,self.Ts[psr_idx].T,lower_a=True,trans_a=False)
-        invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/self.Nvecs[psr_idx]))
-
-        invCholSigmaTN = invchol_Sigma_TNs[0]
-        SigmaTNaProd = np.dot(invCholSigmaTN,a)
-        SigmaTNbProd = np.dot(invCholSigmaTN,b)
-        '''
-        dotTNa = self.Ts[psr_idx].T/np.sqrt(self.Nvecs[psr_idx])*a
-        SigmaTNaProd = solve_triangular(chol_Sigma,dotTNa,lower_a=True,trans_a=False,overwrite_b=True)
-
-        dotTNb = self.Ts[psr_idx].T/np.sqrt(self.Nvecs[psr_idx])*b
-        SigmaTNbProd = solve_triangular(chol_Sigma,dotTNb,lower_a=True,trans_a=False,overwrite_b=True)
-        '''
-
-        dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
-        #dotSigmaTNr = SigmaTNaProd*SigmaTNbProd
-        #print('SigmaTNbProd ',SigmaTNbProd)
-
-        dot_prod = aNb - dotSigmaTNr
-        #print(dot_prod)
-        return dot_prod
-    #@profile
+    #####
+    #calculates lnliklihood for a set of signal parameters
+    #####
     def get_lnlikelihood(self, A, phi0, f0, tau, t0, glitch_idx):
-        #print('Amplitude: ', A)
-        #print('Frequency: ', f0)
-        """Function to do likelihood evaluations in QuickBurst, currently for a single noise transient wavelet"""
 
-        '''
-        x0: List of params
-        resres: pulsar residuals
-        logdet: logdet (2*pi*C) = log(det(phi)*det(sigma)*det(N))
-        '''
-        '''
-        self.NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
-        '''
-        #print('glitch_index: ', glitch_idx)
-
-        #print('Old Sigma: ', self.sigma)
-        self.get_sigmas(A, phi0)
-        #print('New sigma: ', self.sigma)
-
-        #print('Old M and N: ', self.MMs[0, :, :], self.NN[0, :])
-        self.get_M_N(f0,tau,t0,glitch_idx)
-        #print('New M and N: ', self.MMs[0, :, :], self.NN[0, :])
-        LogL = 0
         '''
         ######Understanding the components of logdet######
         logdet = logdet(2*pi*C) = log(det(phi)*det(sigma)*det(N))
         N = white noise covariance matrix
+        self.NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
         phi = prior matrix
         sigma = inverse(phi) - transpose(T)*inverse(N)*T (first term -> phiinv, second term -> TNT)
         T = [M F]
         M = Design matrix
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
-        We should print out these terms in both enterprise and our code and compare, rather than printing out multiple terms calculated (maybe?).
         '''
-        LogL += -1/2*self.resres_logdet
-        print('adding in resres_logdet', LogL)
 
+        self.get_sigmas(A, phi0) #calculate the amplitudes of noise transients
+        self.get_M_N(f0,tau,t0,glitch_idx) #find the NN and MM matrixies from filter functions
+
+        #start calculating the LogLikelihood
+        LogL = 0
+        LogL += -1/2*self.resres_logdet
+        #loop over the pulsars to add in the noise transients
         for i in range(len(self.psrs)):
-            LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1])
+            LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1]) #adding in NN term in sum
             LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
-            #print('LogL: ', LogL)
         return LogL
 
-'''Tried moving Nmat calc outside the class to match Fe stat code'''
-#@profile
-def make_Nmat(phiinv, TNT, Nvec, T):
-
-    Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
-    cf = sl.cho_factor(Sigma)
-    # Nshape = np.shape(T)[0] # Not currently used in code
-
-    TtN = np.multiply((1/Nvec)[:, None], T).T
-
-    # Put pulsar's autoerrors in a diagonal matrix
-    Ndiag = np.diag(1/Nvec)
-
-    expval2 = sl.cho_solve(cf, TtN)
-    # TtNt = np.transpose(TtN) # Not currently used in code
-
-    # An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
-    return Ndiag - np.dot(TtN.T, expval2)
-#@profile
+#####
+#needed to properly calculated logdet of the covariance matrix
+#####
 @njit(parallel=True,fastmath=True)
 def logdet_Sigma_helper(chol_Sigma):
     """get logdet sigma from cholesky"""
@@ -288,3 +150,31 @@ def logdet_Sigma_helper(chol_Sigma):
     for itrj in prange(0,chol_Sigma.shape[0]):
         res += np.log(chol_Sigma[itrj,itrj])
     return 2*res
+
+#####
+#function for taking the dot product of two tensors a and b
+#####
+def dot_product(a, b, phiinv_loc, T, TNT, Sigma, Nvec):
+
+    invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
+    Ndiag = np.diag(1/Nvec)
+
+    #first term in the dot product
+    aNb = np.dot(np.dot(a, Ndiag), b)
+
+    #may need special case when phiinv_loc.ndim=1
+    Sigma = TNT + phiinv_loc
+
+    #mutate inplace to avoid memory allocation overheads
+    chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+    invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False)
+    invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/Nvec))
+
+    invCholSigmaTN = invchol_Sigma_TNs[0]
+    SigmaTNaProd = np.dot(invCholSigmaTN,a)
+    SigmaTNbProd = np.dot(invCholSigmaTN,b)
+    dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
+
+    dot_prod = aNb - dotSigmaTNr
+
+    return dot_prod
