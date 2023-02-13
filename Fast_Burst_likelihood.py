@@ -23,7 +23,7 @@ class FastBurst:
     #####
     #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
     #####
-    def __init__(self,pta,psrs,params,Npsr,tref):
+    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch):
 
         #model parameters that shouldn't change for a run
         self.pta = pta
@@ -67,14 +67,22 @@ class FastBurst:
         self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array)
 
         #singal model terms to be populated as we go
-        self.MMs = np.zeros((Npsr,2,2))
-        self.NN = np.zeros((Npsr,2))
-        self.sigma = np.zeros(2)
+        '''
+        Why is this 2 multiplier here again? I know why it is in self.sigmas (to seperate out the coefficients), but not here.
+        I think you told me, but I don't remember the explanation.
+        '''
+        # self.MMs = np.zeros((Npsr,2*Nglitch,2*Nglitch))
+        # self.NN = np.zeros((Npsr,2*Nglitch))
+        # self.sigma = np.zeros((Nglitch, 2))
+        self.Nglitch = Nglitch
 
     #####
     #generates the MM and NN matrixies from filter functions
     #####
     def get_M_N(self, f0, tau, t0, glitch_idx):
+
+        MMs = np.zeros((self.Npsr,2*self.Nglitch,2*self.Nglitch))
+        NN = np.zeros((self.Npsr,2*self.Nglitch))
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
 
@@ -86,30 +94,39 @@ class FastBurst:
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
 
             #filter fuctions
-            Filt_cos = np.zeros(len(self.toas[ii]))
-            Filt_sin = np.zeros(len(self.toas[ii]))
+            Filt_cos = np.zeros((self.Nglitch,len(self.toas[ii])))
+            Filt_sin = np.zeros((self.Nglitch,len(self.toas[ii])))
 
-            #Single noise transient wavelet
-            if (ii-0.5 <= glitch_idx <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
-                Filt_cos = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.cos(2*np.pi*f0*(self.toas[ii] - t0)) #see PDF for derivation
-                Filt_sin = np.exp(-1*((self.toas[ii] - t0)/tau)**2)*np.sin(2*np.pi*f0*(self.toas[ii] - t0))
+            for k in range(self.Nglitch):
+                #Single noise transient wavelet
+                if (ii-0.5 <= glitch_idx[k] <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
+                    Filt_cos[k] = np.exp(-1*((self.toas[ii] - t0[k])/tau[k])**2)*np.cos(2*np.pi*f0[k]*(self.toas[ii] - t0[k])) #see PDF for derivation
+                    Filt_sin[k] = np.exp(-1*((self.toas[ii] - t0[k])/tau[k])**2)*np.sin(2*np.pi*f0[k]*(self.toas[ii] - t0[k]))
 
-            #populate MM,NN
-            self.MMs[ii, 0, 0] = dot_product(Filt_cos, Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
-            self.MMs[ii, 1, 0] = dot_product(Filt_sin, Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
-            self.MMs[ii, 0, 1] = dot_product(Filt_cos, Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
-            self.MMs[ii, 1, 1] = dot_product(Filt_sin, Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            #for k in range(self.Nglitch):
+                #print(Filt_cos[k])
+                    NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                    NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                    for l in range(self.Nglitch):
+                        #populate MM,NN
+                        MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                        MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                        MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                        MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
 
-            self.NN[ii, 0] = dot_product(self.residuals[ii],Filt_cos,phiinv,T,TNT,Sigma,self.Nvecs[ii])
-            self.NN[ii, 1] = dot_product(self.residuals[ii],Filt_sin,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+        return NN,MMs
 
     ######
     #calculates amplitudes for Signals
     ######
     def get_sigmas(self, A, phi0):
+        sigma = np.zeros((self.Nglitch, 2))
         #noise transient coefficients
-        self.sigma[0] = A*np.cos(phi0)
-        self.sigma[1] = -A*np.sin(phi0)
+        for g in range(self.Nglitch):
+            sigma[g, 0] = A[g]*np.cos(phi0[g])
+            sigma[g, 1] = -A[g]*np.sin(phi0[g])
+
+        return sigma
 
     #####
     #calculates lnliklihood for a set of signal parameters
@@ -120,7 +137,7 @@ class FastBurst:
         ######Understanding the components of logdet######
         logdet = logdet(2*pi*C) = log(det(phi)*det(sigma)*det(N))
         N = white noise covariance matrix
-        self.NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
+        NN is matrix of size (Npsr, 2), where 2 is the # of filter functions used to model transient wavelet. sigma_k[i] are coefficients on filter functions.
         phi = prior matrix
         sigma = inverse(phi) - transpose(T)*inverse(N)*T (first term -> phiinv, second term -> TNT)
         T = [M F]
@@ -128,16 +145,19 @@ class FastBurst:
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
         '''
 
-        self.get_sigmas(A, phi0) #calculate the amplitudes of noise transients
-        self.get_M_N(f0,tau,t0,glitch_idx) #find the NN and MM matrixies from filter functions
+        sigma = self.get_sigmas(A, phi0) #calculate the amplitudes of noise transients
+        NN, MMs = self.get_M_N(f0,tau,t0,glitch_idx) #find the NN and MM matrixies from filter functions
 
         #start calculating the LogLikelihood
         LogL = 0
         LogL += -1/2*self.resres_logdet
         #loop over the pulsars to add in the noise transients
         for i in range(len(self.psrs)):
-            LogL += (self.sigma[0]*self.NN[i, 0] + self.sigma[1]*self.NN[i, 1]) #adding in NN term in sum
-            LogL += -1/2*(self.sigma[0]*(self.sigma[0]*self.MMs[i, 0, 0] + self.sigma[1]*self.MMs[i, 0, 1]) + self.sigma[1]*(self.sigma[0]*self.MMs[i, 1, 0] + self.sigma[1]*self.MMs[i, 1, 1]))
+            if any(i-0.5 <= idx <= i+0.5 for idx in glitch_idx):
+                for k in range(self.Nglitch):
+                    LogL += (sigma[k,0]*NN[i, 0+2*k] + sigma[k,1]*NN[i, 1+2*k]) #adding in NN term in sum
+                    for l in range(self.Nglitch):
+                        LogL += -1/2*(sigma[k,0]*(sigma[l,0]*MMs[i, 0+2*k, 0+2*l] + sigma[l,1]*MMs[i, 0+2*k, 1+2*l]) + sigma[k,1]*(sigma[l,0]*MMs[i, 1+2*k, 0+2*l] + sigma[l,1]*MMs[i, 1+2*k, 1+2*l]))
         return LogL
 
 #####
@@ -153,6 +173,7 @@ def logdet_Sigma_helper(chol_Sigma):
 
 #####
 #function for taking the dot product of two tensors a and b
+#See page 132 in https://arxiv.org/pdf/2105.13270.pdf, where (x|y) = x^T*C_inv*y
 #####
 def dot_product(a, b, phiinv_loc, T, TNT, Sigma, Nvec):
 
