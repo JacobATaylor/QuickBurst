@@ -178,19 +178,8 @@ class FastBurst:
     ######
     #calculates amplitudes for Signals
     ######
-    def get_sigmas(self, Fplus, Fcross, glitch_pulsars):
-        #coefficients for wavelets and glitches
-        sigma = np.zeros((self.Npsr, self.Nwavelet + self.Nglitch, 2))
-
-        for i in range(len(self.psrs)):
-            for g in range(self.Nwavelet):
-                sigma[i,g,0] = -Fplus[i,g]*self.wavelet_prm[g,8]*np.cos(self.wavelet_prm[g,4])*np.cos(2*self.wavelet_prm[g,3]) + Fplus[i,g]*self.wavelet_prm[g,9]*np.cos(self.wavelet_prm[g,5])*np.sin(2*self.wavelet_prm[g,3]) - Fcross[i,g]*self.wavelet_prm[g,8]*np.cos(self.wavelet_prm[g,4])*np.sin(2*self.wavelet_prm[g,3]) - Fcross[i,g]*self.wavelet_prm[g,9]*np.cos(self.wavelet_prm[g,5])*np.cos(2*self.wavelet_prm[g,3])
-                sigma[i,g,1] = Fplus[i,g]*self.wavelet_prm[g,8]*np.sin(self.wavelet_prm[g,4])*np.cos(2*self.wavelet_prm[g,3]) - Fplus[i,g]*self.wavelet_prm[g,9]*np.sin(self.wavelet_prm[g,5])*np.sin(2*self.wavelet_prm[g,3]) + Fcross[i,g]*self.wavelet_prm[g,8]*np.sin(self.wavelet_prm[g,4])*np.sin(2*self.wavelet_prm[g,3]) + Fcross[i,g]*self.wavelet_prm[g,9]*np.sin(self.wavelet_prm[g,5])*np.cos(2*self.wavelet_prm[g,3])
-            if i in glitch_pulsars:
-                for k in range(self.Nglitch):
-                    sigma[i,self.Nwavelet + k,0] = self.glitch_prm[k,1]*np.cos(self.glitch_prm[k,2])
-                    sigma[i,self.Nwavelet + k,1] = -self.glitch_prm[k,1]*np.sin(self.glitch_prm[k,2])
-        return sigma
+    def get_sigmas(self, glitch_pulsars):
+        return get_sigmas_helper(self.pos, glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
 
     #####
     #calculates lnliklihood for a set of signal parameters
@@ -235,34 +224,17 @@ class FastBurst:
         #print('pulsars with glitches:',glitch_pulsars)
 
         #generate the antenna patterns for this set of pulsars
-        Fplus = np.zeros((self.Npsr,self.Nwavelet))
-        Fcross = np.zeros((self.Npsr,self.Nwavelet))
-        for i in range(len(self.psrs)):
-            for g in range(self.Nwavelet):
-                Fplus[i,g], Fcross[i,g], holding = utils.create_gw_antenna_pattern(self.pos[i], self.wavelet_prm[g,1], self.wavelet_prm[g,2]) #Holding is for third varriable we don't use
+        #Fplus = np.zeros((self.Npsr,self.Nwavelet))
+        #Fcross = np.zeros((self.Npsr,self.Nwavelet))
+        #for i in range(len(self.psrs)):
+        #    for g in range(self.Nwavelet):
+        #        Fplus[i,g], Fcross[i,g], holding = utils.create_gw_antenna_pattern(self.pos[i], self.wavelet_prm[g,1], self.wavelet_prm[g,2]) #Holding is for third varriable we don't use
 
-        sigma = self.get_sigmas(Fplus, Fcross, glitch_pulsars) #calculate the amplitudes of noise transients
+        sigma = self.get_sigmas(glitch_pulsars) #calculate the amplitudes of noise transients
         if dif_flag > 0:
             self.get_M_N(glitch_pulsars) #find the NN and MM matrixies from filter functions
 
-        #start calculating the LogLikelihood
-        LogL = 0
-        LogL += -1/2*self.resres_logdet
-        #loop over the pulsars to add in the noise transients
-        for i in range(len(self.psrs)):
-            if i in glitch_pulsars:
-                #step over wavelets and glitches
-                for k in range(self.Nwavelet + self.Nglitch):
-                    LogL += (sigma[i,k,0]*self.NN[i, 0+2*k] + sigma[i,k,1]*self.NN[i, 1+2*k]) #adding in NN term in sum
-                    for l in range(self.Nwavelet + self.Nglitch):
-                        LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*self.MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*self.MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*self.MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*self.MMs[i, 1+2*k, 1+2*l]))
-            else:
-                #just step over wavelets
-                for k in range(self.Nwavelet):
-                    LogL += (sigma[i,k,0]*self.NN[i, 0+2*k] + sigma[i,k,1]*self.NN[i, 1+2*k]) #adding in NN term in sum
-                    for l in range(self.Nwavelet):
-                        LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*self.MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*self.MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*self.MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*self.MMs[i, 1+2*k, 1+2*l]))
-        return LogL
+        return liklihood_helper(sigma, glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
 
 #####
 #needed to properly calculated logdet of the covariance matrix
@@ -275,6 +247,84 @@ def logdet_Sigma_helper(chol_Sigma):
         res += np.log(chol_Sigma[itrj,itrj])
     return 2*res
 
+######
+#calculates amplitudes for Signals
+######
+@njit(fastmath=True,parallel=False)
+def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm, glitch_prm):
+    #coefficients for wavelets and glitches
+    sigma = np.zeros((Npsr, Nwavelet + Nglitch, 2))
+
+    m = np.zeros((Nwavelet, 3))
+    n = np.zeros((Nwavelet, 3))
+    omhat = np.zeros((Nwavelet, 3))
+
+    for j in range(Nwavelet):
+        sin_gwtheta = np.sin(wavelet_prm[j,1])
+        cos_gwtheta = np.cos(wavelet_prm[j,1])
+        sin_gwphi = np.sin(wavelet_prm[j,2])
+        cos_gwphi = np.cos(wavelet_prm[j,2])
+
+        m[j] = np.array([sin_gwphi, -cos_gwphi, 0.0])
+        n[j] = np.array([-cos_gwtheta * cos_gwphi, -cos_gwtheta * sin_gwphi, sin_gwtheta])
+        omhat[j] = np.array([-sin_gwtheta * cos_gwphi, -sin_gwtheta * sin_gwphi, -cos_gwtheta])
+
+    for i in range(Npsr):
+        for g in range(Nwavelet):
+            m_pos = 0.
+            n_pos = 0.
+            cosMu = 0.
+            for j in range(0,3):
+                m_pos += m[g,j]*pos[i,j]
+                n_pos += n[g,j]*pos[i,j]
+                cosMu -= omhat[g,j]*pos[i,j]
+            #m_pos = np.dot(m, pos[i])
+            #n_pos = np.dot(n, pos[i])
+            #cosMu = -np.dot(omhat, pos[i])
+
+            F_p = 0.5 * (m_pos ** 2 - n_pos ** 2) / (1 - cosMu)
+            F_c = (m_pos * n_pos) / (1 - cosMu)
+
+            cos_0=np.cos(2*wavelet_prm[g,3])
+            cos_p=np.cos(wavelet_prm[g,4])
+            cos_c=np.cos(wavelet_prm[g,5])
+            sin_0=np.sin(2*wavelet_prm[g,3])
+            sin_p=np.sin(wavelet_prm[g,4])
+            sin_c=np.sin(wavelet_prm[g,5])
+
+            sigma[i,g,0] = -F_p*wavelet_prm[g,8]*cos_p*cos_0 + F_p*wavelet_prm[g,9]*cos_c*sin_0 - F_c*wavelet_prm[g,8]*cos_p*sin_0 - F_c*wavelet_prm[g,9]*cos_c*cos_0
+            sigma[i,g,1] = F_p*wavelet_prm[g,8]*sin_p*cos_0 - F_p*wavelet_prm[g,9]*sin_c*sin_0 + F_c*wavelet_prm[g,8]*sin_p*sin_0 + F_c*wavelet_prm[g,9]*sin_c*cos_0
+        if i in glitch_pulsars:
+            for k in range(Nglitch):
+                sigma[i,Nwavelet + k,0] = glitch_prm[k,1]*np.cos(glitch_prm[k,2])
+                sigma[i,Nwavelet + k,1] = -glitch_prm[k,1]*np.sin(glitch_prm[k,2])
+    return sigma
+
+#####
+#combine all likelihood terms
+#####
+@njit(fastmath=True,parallel=False)
+def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglitch, NN, MMs):
+    #start calculating the LogLikelihood
+    LogL = 0
+    LogL += -1/2*resres_logdet
+    #loop over the pulsars to add in the noise transients
+    for i in range(Npsr):
+        if i in glitch_pulsars:
+            #step over wavelets and glitches
+            for k in range(Nwavelet + Nglitch):
+                LogL += (sigma[i,k,0]*NN[i, 0+2*k] + sigma[i,k,1]*NN[i, 1+2*k]) #adding in NN term in sum
+                for l in range(Nwavelet + Nglitch):
+                    LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 1+2*k, 1+2*l]))
+        else:
+            #just step over wavelets
+            for k in range(Nwavelet):
+                LogL += (sigma[i,k,0]*NN[i, 0+2*k] + sigma[i,k,1]*NN[i, 1+2*k]) #adding in NN term in sum
+                for l in range(Nwavelet):
+                    LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 1+2*k, 1+2*l]))
+    return LogL
+
+
 #####
 #function for taking the dot product of two tensors a and b
 #See page 132 in https://arxiv.org/pdf/2105.13270.pdf, where (x|y) = x^T*C_inv*y
@@ -282,10 +332,12 @@ def logdet_Sigma_helper(chol_Sigma):
 def dot_product(a, b, phiinv_loc, T, TNT, Sigma, Nvec):
 
     #invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
-    Ndiag = np.diag(1/Nvec)
-
+    Ndiag = 1/Nvec
+    #print(Ndiag)
     #first term in the dot product
-    aNb = np.dot(np.dot(a, Ndiag), b)
+    #aNb = np.dot(np.dot(a, Ndiag), b)
+    '''@ decorator acts as a dot product operator'''
+    aNb = a*Ndiag@b
 
     #may need special case when phiinv_loc.ndim=1
     Sigma = TNT + phiinv_loc
