@@ -61,11 +61,15 @@ class FastBurst:
             T = self.Ts[i]
             Sigma = self.TNTs[i]+phiinv_loc
 
-            #first term in the dot product
-            rNr_loc[i] = dot_product(self.residuals[i],self.residuals[i],phiinv_loc,T,TNT,Sigma,self.Nvecs[i])
-
-            #mutate inplace to avoid memory allocation overheads
+            Ndiag = 1/self.Nvecs[i]
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+
+            invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
+
+            #first term in the dot product
+            rNr_loc[i] = dot_product(self.residuals[i],self.residuals[i],invCholSigmaTN,Ndiag)
+
             logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
             #add the necessary component to logdet
             logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
@@ -106,7 +110,18 @@ class FastBurst:
             TNT = self.TNTs[ii]
             T = self.Ts[ii]
             phiinv = phiinvs[ii]
-            Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+
+            Ndiag = 1/self.Nvecs[ii]
+            Sigma = TNT + phiinv
+            #mutate inplace to avoid memory allocation overheads
+            chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+
+            invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
+
+            #print(invCholSigmaTN[:,0].shape)
+
+            invCholSigmaTNfilter = np.zeros((self.Nwavelet + self.Nglitch,2,len(invCholSigmaTN[:,0]))) #stores the cholesky terms for use in dot products
 
             #filter fuctions
             Filt_cos = np.zeros((self.Nwavelet + self.Nglitch,len(self.toas[ii])))
@@ -116,33 +131,58 @@ class FastBurst:
             for s in range(self.Nwavelet):
                 Filt_cos[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.cos(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7])) #see PDF for derivation
                 Filt_sin[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.sin(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7]))
-
+                invCholSigmaTNfilter[s,0] = invCholSigmaTN@Filt_cos[s]
+                invCholSigmaTNfilter[s,1] = invCholSigmaTN@Filt_sin[s]
             #second half are glitches
             for j in range(self.Nglitch):
                 if (ii-0.5 <= self.glitch_prm[j,3] <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
                     Filt_cos[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.cos(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4])) #see PDF for derivation
                     Filt_sin[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.sin(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4]))
+                    invCholSigmaTNfilter[j + self.Nwavelet,0] = invCholSigmaTN@Filt_cos[j + self.Nwavelet]
+                    invCholSigmaTNfilter[j + self.Nwavelet,1] = invCholSigmaTN@Filt_sin[j + self.Nwavelet]
+
+            invCholSigmaTNres = invCholSigmaTN@self.residuals[ii]
 
             if ii in glitch_pulsars:
                 #populate MM,NN with wavelets and glitches (including cross terms)
                 for k in range(self.Nwavelet + self.Nglitch):
-                    self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                    self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                    self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0]
+                    self.NN[ii, 1+2*k] = self.residuals[ii]*Ndiag@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
                     for l in range(self.Nwavelet + self.Nglitch):
-                        self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                        self.MMs[ii, 0+2*k, 0+2*l] = Filt_cos[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,0]
+                        self.MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
+                        self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
+                        self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
             else:
                 #populate just wavelet parts of MM,NN
                 for k in range(self.Nwavelet):
-                    self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                    self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                    self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0]
+                    self.NN[ii, 1+2*k] = self.residuals[ii]*Ndiag@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
                     for l in range(self.Nwavelet):
-                        self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
-                        self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],phiinv,T,TNT,Sigma,self.Nvecs[ii])
+                        self.MMs[ii, 0+2*k, 0+2*l] = Filt_cos[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,0]
+                        self.MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
+                        self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
+                        self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
+            # if ii in glitch_pulsars:
+            #     #populate MM,NN with wavelets and glitches (including cross terms)
+            #     for k in range(self.Nwavelet + self.Nglitch):
+            #         self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],invCholSigmaTN,Ndiag)#,phiinv,T,TNT,Sigma,self.Nvecs[ii])
+            #         self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],invCholSigmaTN,Ndiag)
+            #         for l in range(self.Nwavelet + self.Nglitch):
+            #             self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],invCholSigmaTN,Ndiag)
+            # else:
+            #     #populate just wavelet parts of MM,NN
+            #     for k in range(self.Nwavelet):
+            #         self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],invCholSigmaTN,Ndiag)
+            #         self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],invCholSigmaTN,Ndiag)
+            #         for l in range(self.Nwavelet):
+            #             self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],invCholSigmaTN,Ndiag)
+            #             self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],invCholSigmaTN,Ndiag)
 
     #####
     #Function to generate wavelets w/ uniform priors
@@ -221,14 +261,6 @@ class FastBurst:
         glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
         for el in range(len(self.glitch_prm[:,3])):
             glitch_pulsars[el] = round(self.glitch_prm[el,3])
-        #print('pulsars with glitches:',glitch_pulsars)
-
-        #generate the antenna patterns for this set of pulsars
-        #Fplus = np.zeros((self.Npsr,self.Nwavelet))
-        #Fcross = np.zeros((self.Npsr,self.Nwavelet))
-        #for i in range(len(self.psrs)):
-        #    for g in range(self.Nwavelet):
-        #        Fplus[i,g], Fcross[i,g], holding = utils.create_gw_antenna_pattern(self.pos[i], self.wavelet_prm[g,1], self.wavelet_prm[g,2]) #Holding is for third varriable we don't use
 
         sigma = self.get_sigmas(glitch_pulsars) #calculate the amplitudes of noise transients
         if dif_flag > 0:
@@ -278,13 +310,13 @@ def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm,
                 m_pos += m[g,j]*pos[i,j]
                 n_pos += n[g,j]*pos[i,j]
                 cosMu -= omhat[g,j]*pos[i,j]
-            #m_pos = np.dot(m, pos[i])
-            #n_pos = np.dot(n, pos[i])
-            #cosMu = -np.dot(omhat, pos[i])
 
+            #Calculating the antenna response for the + and x GW modes. There is
+            #a different response for each wavelet, so we compute a new antenna pattern for each.
             F_p = 0.5 * (m_pos ** 2 - n_pos ** 2) / (1 - cosMu)
             F_c = (m_pos * n_pos) / (1 - cosMu)
 
+            #Calculating the angles once used to calculate coefficients for wavelet signal (see PDF for derivation)
             cos_0=np.cos(2*wavelet_prm[g,3])
             cos_p=np.cos(wavelet_prm[g,4])
             cos_c=np.cos(wavelet_prm[g,5])
@@ -292,6 +324,7 @@ def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm,
             sin_p=np.sin(wavelet_prm[g,4])
             sin_c=np.sin(wavelet_prm[g,5])
 
+            #Calculating wavelet signal coefficients
             sigma[i,g,0] = -F_p*wavelet_prm[g,8]*cos_p*cos_0 + F_p*wavelet_prm[g,9]*cos_c*sin_0 - F_c*wavelet_prm[g,8]*cos_p*sin_0 - F_c*wavelet_prm[g,9]*cos_c*cos_0
             sigma[i,g,1] = F_p*wavelet_prm[g,8]*sin_p*cos_0 - F_p*wavelet_prm[g,9]*sin_c*sin_0 + F_c*wavelet_prm[g,8]*sin_p*sin_0 + F_c*wavelet_prm[g,9]*sin_c*cos_0
         if i in glitch_pulsars:
@@ -329,29 +362,15 @@ def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglit
 #function for taking the dot product of two tensors a and b
 #See page 132 in https://arxiv.org/pdf/2105.13270.pdf, where (x|y) = x^T*C_inv*y
 #####
-def dot_product(a, b, phiinv_loc, T, TNT, Sigma, Nvec):
+@njit(fastmath=True,parallel=False)
+def dot_product(a, b, invCholSigmaTN, Ndiag):
 
-    #invchol_Sigma_TNs = List.empty_list(nb.types.float64[:,::1])
-    Ndiag = 1/Nvec
-    #print(Ndiag)
-    #first term in the dot product
-    #aNb = np.dot(np.dot(a, Ndiag), b)
     '''@ decorator acts as a dot product operator'''
     aNb = a*Ndiag@b
 
-    #may need special case when phiinv_loc.ndim=1
-    Sigma = TNT + phiinv_loc
-
-    #mutate inplace to avoid memory allocation overheads
-    chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-    invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False)
-    #invchol_Sigma_TNs.append(np.ascontiguousarray(invchol_Sigma_T_loc/Nvec))
-    invchol_Sigma_TNs = np.ascontiguousarray(invchol_Sigma_T_loc/Nvec)
-
-    invCholSigmaTN = invchol_Sigma_TNs#[0]
-    SigmaTNaProd = np.dot(invCholSigmaTN,a)
-    SigmaTNbProd = np.dot(invCholSigmaTN,b)
-    dotSigmaTNr = np.dot(SigmaTNaProd.T,SigmaTNbProd)
+    SigmaTNaProd = invCholSigmaTN@a
+    SigmaTNbProd = invCholSigmaTN@b
+    dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
 
     dot_prod = aNb - dotSigmaTNr
 
