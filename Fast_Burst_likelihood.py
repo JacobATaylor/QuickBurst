@@ -56,23 +56,29 @@ class FastBurst:
 
         for i in range(self.Npsr):
 
+            #compile terms in order to do cholesky component of dot products
             phiinv_loc,logdetphi_loc = pls_temp[i]
             TNT = self.TNTs[i]
             T = self.Ts[i]
-            Sigma = self.TNTs[i]+phiinv_loc
-
+            Sigma = self.TNTs[i]+(np.diag(phiinv_loc) if phiinv_loc.ndim == 1 else phiinv_loc)
             Ndiag = 1/self.Nvecs[i]
+            #(res|res) calculation
+            aNb = self.residuals[i]*Ndiag@self.residuals[i]
+
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-
             invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
 
+            SigmaTNaProd = invCholSigmaTN@self.residuals[i]
+            SigmaTNbProd = invCholSigmaTN@self.residuals[i]
+            dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
             #first term in the dot product
-            rNr_loc[i] = dot_product(self.residuals[i],self.residuals[i],invCholSigmaTN,Ndiag)
+            rNr_loc[i] = aNb - dotSigmaTNr
 
             logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
             #add the necessary component to logdet
             logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
+
 
         #Non-signal dependent terms
         self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array)
@@ -89,14 +95,14 @@ class FastBurst:
         #max possible size of NN and MMs
         self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
         self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
-
-        self.Saved_Shape = np.zeros((3*self.Nwavelet + 3*self.Nglitch)) #space to story current shape parameters to decided it we need to update NN and MM
+        #space to story current shape parameters to decided it we need to update NN and MM
+        self.Saved_Shape = np.zeros((3*self.Nwavelet + 3*self.Nglitch))
+        self.key_list = list(self.params)#makes a list of the keys in the params Dictionary
 
 
     #####
     #generates the MM and NN matrixies from filter functions
     #####
-    #@profile
     def get_M_N(self, glitch_pulsars):
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
@@ -106,21 +112,16 @@ class FastBurst:
         self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
 
         for ii in range(self.Npsr):
-
+            #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
             TNT = self.TNTs[ii]
             T = self.Ts[ii]
             phiinv = phiinvs[ii]
-
             Ndiag = 1/self.Nvecs[ii]
-            Sigma = TNT + phiinv
-            #mutate inplace to avoid memory allocation overheads
+            Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-
             invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
-
-            #print(invCholSigmaTN[:,0].shape)
-
+            #saves filter fuction terms for the dot_product
             invCholSigmaTNfilter = np.zeros((self.Nwavelet + self.Nglitch,2,len(invCholSigmaTN[:,0]))) #stores the cholesky terms for use in dot products
 
             #filter fuctions
@@ -131,28 +132,30 @@ class FastBurst:
             for s in range(self.Nwavelet):
                 Filt_cos[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.cos(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7])) #see PDF for derivation
                 Filt_sin[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.sin(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7]))
-                invCholSigmaTNfilter[s,0] = invCholSigmaTN@Filt_cos[s]
+                invCholSigmaTNfilter[s,0] = invCholSigmaTN@Filt_cos[s] #cholesky terms to be re-used
                 invCholSigmaTNfilter[s,1] = invCholSigmaTN@Filt_sin[s]
             #second half are glitches
             for j in range(self.Nglitch):
                 if (ii-0.5 <= self.glitch_prm[j,3] <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
                     Filt_cos[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.cos(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4])) #see PDF for derivation
                     Filt_sin[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.sin(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4]))
-                    invCholSigmaTNfilter[j + self.Nwavelet,0] = invCholSigmaTN@Filt_cos[j + self.Nwavelet]
+                    invCholSigmaTNfilter[j + self.Nwavelet,0] = invCholSigmaTN@Filt_cos[j + self.Nwavelet]#cholesky terms to be re-used
                     invCholSigmaTNfilter[j + self.Nwavelet,1] = invCholSigmaTN@Filt_sin[j + self.Nwavelet]
-
+            #cholesky term for the residuals, only used in NN calc
             invCholSigmaTNres = invCholSigmaTN@self.residuals[ii]
 
+            #update the full N and M when we are looking at a pulsar that contains some glitches
             if ii in glitch_pulsars:
                 #populate MM,NN with wavelets and glitches (including cross terms)
                 for k in range(self.Nwavelet + self.Nglitch):
-                    self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0]
+                    self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0] #manualy calculate dot product of aNb - aNTSigmaTNb
                     self.NN[ii, 1+2*k] = self.residuals[ii]*Ndiag@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
                     for l in range(self.Nwavelet + self.Nglitch):
                         self.MMs[ii, 0+2*k, 0+2*l] = Filt_cos[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,0]
                         self.MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
                         self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
                         self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
+            #only update wavelets if there is now glitch in this pulsar
             else:
                 #populate just wavelet parts of MM,NN
                 for k in range(self.Nwavelet):
@@ -163,36 +166,13 @@ class FastBurst:
                         self.MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
                         self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
                         self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
-            # if ii in glitch_pulsars:
-            #     #populate MM,NN with wavelets and glitches (including cross terms)
-            #     for k in range(self.Nwavelet + self.Nglitch):
-            #         self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],invCholSigmaTN,Ndiag)#,phiinv,T,TNT,Sigma,self.Nvecs[ii])
-            #         self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],invCholSigmaTN,Ndiag)
-            #         for l in range(self.Nwavelet + self.Nglitch):
-            #             self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],invCholSigmaTN,Ndiag)
-            # else:
-            #     #populate just wavelet parts of MM,NN
-            #     for k in range(self.Nwavelet):
-            #         self.NN[ii, 0+2*k] = dot_product(self.residuals[ii],Filt_cos[k],invCholSigmaTN,Ndiag)
-            #         self.NN[ii, 1+2*k] = dot_product(self.residuals[ii],Filt_sin[k],invCholSigmaTN,Ndiag)
-            #         for l in range(self.Nwavelet):
-            #             self.MMs[ii, 0+2*k, 0+2*l] = dot_product(Filt_cos[k], Filt_cos[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 1+2*k, 0+2*l] = dot_product(Filt_sin[k], Filt_cos[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 0+2*k, 1+2*l] = dot_product(Filt_cos[k], Filt_sin[l],invCholSigmaTN,Ndiag)
-            #             self.MMs[ii, 1+2*k, 1+2*l] = dot_product(Filt_sin[k], Filt_sin[l],invCholSigmaTN,Ndiag)
 
     #####
     #Function to generate wavelets w/ uniform priors
     #####
     def get_parameters(self, x0):
-        '''
-        we should be able to parse which positional values are which in the x0 by looking at the order of pta.params
-        ahh yeah, that's smart.
-        '''
-        key_list = list(self.params)#makes a list of the keys in the params Dictionary
+        #defined in init
+        key_list = self.key_list
         #glitch models
         for i in range(self.Nglitch):
             self.glitch_prm[i,0] = 10**(x0[key_list.index('Glitch_'+str(i)+'_log10_f0')])
@@ -224,8 +204,7 @@ class FastBurst:
     #####
     #calculates lnliklihood for a set of signal parameters
     #####
-    #@profile
-    def get_lnlikelihood(self, x0):#A, phi0, f0, tau, t0, glitch_idx, GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w):
+    def get_lnlikelihood(self, x0):
 
         '''
         ######Understanding the components of logdet######
@@ -238,11 +217,9 @@ class FastBurst:
         M = Design matrix
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
         '''
-
-        '''Have you checked that this is rounding correctly (and matches the parameters for a glitch pulsar)?
-        yes, I prited out these values and they were rounded correctly.
-        '''
+        #parse current parameters using dictionary
         self.get_parameters(x0)
+        #check if shape params have changed between runs
         dif_flag = 0
         for i in range(self.Nglitch):
             if self.glitch_shape_saved[i,0] != self.glitch_prm[i,0] or self.glitch_shape_saved[i,1] != self.glitch_prm[i,4] or self.glitch_shape_saved[i,2] != self.glitch_prm[i,5]:
@@ -261,11 +238,12 @@ class FastBurst:
         glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
         for el in range(len(self.glitch_prm[:,3])):
             glitch_pulsars[el] = round(self.glitch_prm[el,3])
-
-        sigma = self.get_sigmas(glitch_pulsars) #calculate the amplitudes of noise transients
+        #calculate the amplitudes of noise transients and wavelets
+        sigma = self.get_sigmas(glitch_pulsars)
+        #if we have new shape parameters, find the NN and MM matrixies from filter functions
         if dif_flag > 0:
-            self.get_M_N(glitch_pulsars) #find the NN and MM matrixies from filter functions
-
+            self.get_M_N(glitch_pulsars)
+        #calls jit function that compiles all likelihood contributions
         return liklihood_helper(sigma, glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
 
 #####
@@ -273,7 +251,7 @@ class FastBurst:
 #####
 @njit(parallel=True,fastmath=True)
 def logdet_Sigma_helper(chol_Sigma):
-    """get logdet sigma from cholesky"""
+    #get logdet sigma from cholesky
     res = 0.
     for itrj in prange(0,chol_Sigma.shape[0]):
         res += np.log(chol_Sigma[itrj,itrj])
@@ -287,10 +265,10 @@ def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm,
     #coefficients for wavelets and glitches
     sigma = np.zeros((Npsr, Nwavelet + Nglitch, 2))
 
+    #terms used in antenna pattern calculation
     m = np.zeros((Nwavelet, 3))
     n = np.zeros((Nwavelet, 3))
     omhat = np.zeros((Nwavelet, 3))
-
     for j in range(Nwavelet):
         sin_gwtheta = np.sin(wavelet_prm[j,1])
         cos_gwtheta = np.cos(wavelet_prm[j,1])
@@ -356,22 +334,3 @@ def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglit
                 for l in range(Nwavelet):
                     LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 1+2*k, 1+2*l]))
     return LogL
-
-
-#####
-#function for taking the dot product of two tensors a and b
-#See page 132 in https://arxiv.org/pdf/2105.13270.pdf, where (x|y) = x^T*C_inv*y
-#####
-@njit(fastmath=True,parallel=False)
-def dot_product(a, b, invCholSigmaTN, Ndiag):
-
-    '''@ decorator acts as a dot product operator'''
-    aNb = a*Ndiag@b
-
-    SigmaTNaProd = invCholSigmaTN@a
-    SigmaTNbProd = invCholSigmaTN@b
-    dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
-
-    dot_prod = aNb - dotSigmaTNr
-
-    return dot_prod
