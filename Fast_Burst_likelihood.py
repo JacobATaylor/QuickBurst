@@ -26,7 +26,7 @@ class FastBurst:
     #####
     #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
     #####
-    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch, Nwavelet):
+    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch, Nwavelet, rn_vary):
 
         #model parameters that shouldn't change for a run
         self.pta = pta
@@ -49,39 +49,9 @@ class FastBurst:
         for (l,m) in self.pta.get_rNr_logdet(params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
             self.logdet += m
 
-        #generate arrays to store res|res and logdet(2*Pi*N) terms
-        rNr_loc = np.zeros(self.Npsr)
-        logdet_array = np.zeros(self.Npsr)
-        pls_temp = self.pta.get_phiinv(self.params, logdet=True, method='partition')
-
-        for i in range(self.Npsr):
-
-            #compile terms in order to do cholesky component of dot products
-            phiinv_loc,logdetphi_loc = pls_temp[i]
-            TNT = self.TNTs[i]
-            T = self.Ts[i]
-            Sigma = self.TNTs[i]+(np.diag(phiinv_loc) if phiinv_loc.ndim == 1 else phiinv_loc)
-            Ndiag = 1/self.Nvecs[i]
-            #(res|res) calculation
-            aNb = self.residuals[i]*Ndiag@self.residuals[i]
-
-            chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-            invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
-
-            SigmaTNaProd = invCholSigmaTN@self.residuals[i]
-            SigmaTNbProd = invCholSigmaTN@self.residuals[i]
-            dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
-            #first term in the dot product
-            rNr_loc[i] = aNb - dotSigmaTNr
-
-            logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
-            #add the necessary component to logdet
-            logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
-
-
-        #Non-signal dependent terms
-        self.resres_logdet = self.logdet + np.sum(rNr_loc) + np.sum(logdet_array)
+        #save likelihood terms if updating is not necessary
+        self.rn_vary = rn_vary
+        self.resres_logdet_init = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
 
         #max number of glitches and signals that can be handeled
         self.Nglitch = Nglitch
@@ -173,6 +143,10 @@ class FastBurst:
     def get_parameters(self, x0):
         #defined in init
         key_list = self.key_list
+        #updating terms needed to calculate phiinv and logdet when varying RN
+        if self.rn_vary:
+            for k in range(len(key_list)):
+                self.params[key_list[k]] = x0[k]
         #glitch models
         for i in range(self.Nglitch):
             self.glitch_prm[i,0] = 10**(x0[key_list.index('Glitch_'+str(i)+'_log10_f0')])
@@ -228,6 +202,7 @@ class FastBurst:
                 self.glitch_shape_saved[i,0] = self.glitch_prm[i,0]
                 self.glitch_shape_saved[i,1] = self.glitch_prm[i,4]
                 self.glitch_shape_saved[i,2] = self.glitch_prm[i,5]
+        for i in range(self.Nwavelet):
             if self.wavelet_shape_saved[i,0] != self.wavelet_prm[i,0] or self.wavelet_shape_saved[i,1] != self.wavelet_prm[i,7] or self.wavelet_shape_saved[i,2] != self.wavelet_prm[i,6]:
                 dif_flag += 1
                 self.wavelet_shape_saved[i,0] = self.wavelet_prm[i,0]
@@ -243,8 +218,14 @@ class FastBurst:
         #if we have new shape parameters, find the NN and MM matrixies from filter functions
         if dif_flag > 0:
             self.get_M_N(glitch_pulsars)
+
+        #update intrinsic likelihood terms when updating RN
+        if self.rn_vary:
+            resres_logdet = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
+        else:
+            resres_logdet = self.resres_logdet_init
         #calls jit function that compiles all likelihood contributions
-        return liklihood_helper(sigma, glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        return liklihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
 
 #####
 #needed to properly calculated logdet of the covariance matrix
@@ -256,6 +237,44 @@ def logdet_Sigma_helper(chol_Sigma):
     for itrj in prange(0,chol_Sigma.shape[0]):
         res += np.log(chol_Sigma[itrj,itrj])
     return 2*res
+
+#####
+#updating non-signal likelihood terms as we go
+#####
+#@njit(parallel=True,fastmath=True)
+def resres_logdet_calc(Npsr, pta, params, TNTs, Ts, Nvecs, residuals):
+    #generate arrays to store res|res and logdet(2*Pi*N) terms
+    rNr_loc = np.zeros(Npsr)
+    logdet_array = np.zeros(Npsr)
+    pls_temp = pta.get_phiinv(params, logdet=True, method='partition')
+
+    for i in range(Npsr):
+        #compile terms in order to do cholesky component of dot products
+        phiinv_loc,logdetphi_loc = pls_temp[i]
+        TNT = TNTs[i]
+        T = Ts[i]
+        Sigma = TNTs[i]+(np.diag(phiinv_loc) if phiinv_loc.ndim == 1 else phiinv_loc)
+        Ndiag = 1/Nvecs[i]
+        #(res|res) calculation
+        aNb = residuals[i]*Ndiag@residuals[i]
+
+        chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+        invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+        invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
+
+        SigmaTNaProd = invCholSigmaTN@residuals[i]
+        SigmaTNbProd = invCholSigmaTN@residuals[i]
+        dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
+        #first term in the dot product
+        rNr_loc[i] = aNb - dotSigmaTNr
+
+        logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
+        #add the necessary component to logdet
+        logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
+
+
+    #Non-signal dependent terms
+    return np.sum(rNr_loc) + np.sum(logdet_array)
 
 ######
 #calculates amplitudes for Signals
