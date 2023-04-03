@@ -120,7 +120,7 @@ class FastBurst:
             if ii in glitch_pulsars:
                 #populate MM,NN with wavelets and glitches (including cross terms)
                 for k in range(self.Nwavelet + self.Nglitch):
-                    if dif_flag[k] == 1:
+                    if dif_flag[k] == 1: #check which terms have actualy changed before changing M and N
                         self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0] #manualy calculate dot product of aNb - aNTSigmaTNb
                         self.NN[ii, 1+2*k] = self.residuals[ii]*Ndiag@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
                     for l in range(self.Nwavelet + self.Nglitch):
@@ -133,7 +133,7 @@ class FastBurst:
             else:
                 #populate just wavelet parts of MM,NN
                 for k in range(self.Nwavelet):
-                    if dif_flag[k] == 1:
+                    if dif_flag[k] == 1: #check which terms have actually changed before changing M and N
                         self.NN[ii, 0+2*k] = self.residuals[ii]*Ndiag@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0]
                         self.NN[ii, 1+2*k] = self.residuals[ii]*Ndiag@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
                     for l in range(self.Nwavelet):
