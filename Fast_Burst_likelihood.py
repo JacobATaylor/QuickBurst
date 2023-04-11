@@ -49,6 +49,19 @@ class FastBurst:
         for (l,m) in self.pta.get_rNr_logdet(params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
             self.logdet += m
 
+        #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+        self.invCholSigmaTN = []
+        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+        for ii in range(self.Npsr):
+            TNT = self.TNTs[ii]
+            T = self.Ts[ii]
+            phiinv = phiinvs[ii]
+            Ndiag = 1/self.Nvecs[ii]
+            Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+            chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+            self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+
         #save likelihood terms if updating is not necessary
         self.rn_vary = rn_vary
         self.resres_logdet_init = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
@@ -68,7 +81,29 @@ class FastBurst:
         #space to story current shape parameters to decided it we need to update NN and MM
         self.Saved_Shape = np.zeros((3*self.Nwavelet + 3*self.Nglitch))
         self.key_list = list(self.params)#makes a list of the keys in the params Dictionary
+        #self.key_list = List(key_list)#ussing the numba method of typed lists to make something we can easily use in jit
+        self.glitch_indx = np.zeros((self.Nglitch,6))
+        self.wavelet_indx = np.zeros((self.Nwavelet,10))
+        for i in range(self.Nglitch):
+            self.glitch_indx[i,0] = self.key_list.index('Glitch_'+str(i)+'_log10_f0')
+            self.glitch_indx[i,1] = self.key_list.index('Glitch_'+str(i)+'_log10_h')
+            self.glitch_indx[i,2] = self.key_list.index('Glitch_'+str(i)+'_phase0')
+            self.glitch_indx[i,3] = self.key_list.index('Glitch_'+str(i)+'_psr_idx')
+            self.glitch_indx[i,4] = self.key_list.index('Glitch_'+str(i)+'_t0')
+            self.glitch_indx[i,5] = self.key_list.index('Glitch_'+str(i)+'_tau')
 
+        #wavelet models
+        for j in range(self.Nwavelet):
+            self.wavelet_indx[j,0] = self.key_list.index('wavelet_'+str(j)+'_log10_f0')
+            self.wavelet_indx[j,1] = self.key_list.index('wavelet_'+str(j)+'_cos_gwtheta')
+            self.wavelet_indx[j,2] = self.key_list.index('wavelet_'+str(j)+'_gwphi')
+            self.wavelet_indx[j,3] = self.key_list.index('wavelet_'+str(j)+'_gw_psi')
+            self.wavelet_indx[j,4] = self.key_list.index('wavelet_'+str(j)+'_phase0')
+            self.wavelet_indx[j,5] = self.key_list.index('wavelet_'+str(j)+'_phase0_cross')
+            self.wavelet_indx[j,6] = self.key_list.index('wavelet_'+str(j)+'_tau')
+            self.wavelet_indx[j,7] = self.key_list.index('wavelet_'+str(j)+'_t0')
+            self.wavelet_indx[j,8] = self.key_list.index('wavelet_'+str(j)+'_log10_h')
+            self.wavelet_indx[j,9] = self.key_list.index('wavelet_'+str(j)+'_log10_h_cross')
 
     #####
     #generates the MM and NN matrixies from filter functions
@@ -76,21 +111,24 @@ class FastBurst:
     def get_M_N(self, glitch_pulsars, dif_flag):
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
-
+        if self.rn_vary:
+            self.invCholSigmaTN = []
         #reset MM and NN to zeros when running this function
         self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
         self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
 
         for ii in range(self.Npsr):
-            #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
-            TNT = self.TNTs[ii]
-            T = self.Ts[ii]
-            phiinv = phiinvs[ii]
             Ndiag = 1/self.Nvecs[ii]
-            Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
-            chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-            invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
+            if self.rn_vary:
+                #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+                TNT = self.TNTs[ii]
+                T = self.Ts[ii]
+                phiinv = phiinvs[ii]
+                Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+                chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+                invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+                self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+            invCholSigmaTN = self.invCholSigmaTN[ii]
             #saves filter fuction terms for the dot_product
             invCholSigmaTNfilter = np.zeros((self.Nwavelet + self.Nglitch,2,len(invCholSigmaTN[:,0]))) #stores the cholesky terms for use in dot products
 
@@ -143,37 +181,6 @@ class FastBurst:
                             self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
                             self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
 
-    #####
-    #Function to generate wavelets w/ uniform priors
-    #####
-    def get_parameters(self, x0):
-        #defined in init
-        key_list = self.key_list
-        #updating terms needed to calculate phiinv and logdet when varying RN
-        if self.rn_vary:
-            for k in range(len(key_list)):
-                self.params[key_list[k]] = x0[k]
-        #glitch models
-        for i in range(self.Nglitch):
-            self.glitch_prm[i,0] = 10**(x0[key_list.index('Glitch_'+str(i)+'_log10_f0')])
-            self.glitch_prm[i,1] = 10**(x0[key_list.index('Glitch_'+str(i)+'_log10_h')])
-            self.glitch_prm[i,2] = x0[key_list.index('Glitch_'+str(i)+'_phase0')]
-            self.glitch_prm[i,3] = x0[key_list.index('Glitch_'+str(i)+'_psr_idx')]
-            self.glitch_prm[i,4] = (365.25*24*3600)*x0[key_list.index('Glitch_'+str(i)+'_t0')]
-            self.glitch_prm[i,5] = (365.25*24*3600)*x0[key_list.index('Glitch_'+str(i)+'_tau')]
-        #wavelet models
-        for j in range(self.Nwavelet):
-            self.wavelet_prm[j,0] = 10**(x0[key_list.index('wavelet_'+str(j)+'_log10_f0')])
-            self.wavelet_prm[j,1] = np.arccos(x0[key_list.index('wavelet_'+str(j)+'_cos_gwtheta')])
-            self.wavelet_prm[j,2] = x0[key_list.index('wavelet_'+str(j)+'_gwphi')]
-            self.wavelet_prm[j,3] = x0[key_list.index('wavelet_'+str(j)+'_gw_psi')]
-            self.wavelet_prm[j,4] = x0[key_list.index('wavelet_'+str(j)+'_phase0')]
-            self.wavelet_prm[j,5] = x0[key_list.index('wavelet_'+str(j)+'_phase0_cross')]
-            self.wavelet_prm[j,6] = (365.25*24*3600)*x0[key_list.index('wavelet_'+str(j)+'_tau')]
-            self.wavelet_prm[j,7] = (365.25*24*3600)*x0[key_list.index('wavelet_'+str(j)+'_t0')]
-            self.wavelet_prm[j,8] = 10**(x0[key_list.index('wavelet_'+str(j)+'_log10_h')])
-            self.wavelet_prm[j,9] = 10**(x0[key_list.index('wavelet_'+str(j)+'_log10_h_cross')])
-
 
     ######
     #calculates amplitudes for Signals
@@ -197,8 +204,14 @@ class FastBurst:
         M = Design matrix
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
         '''
+        #updating terms needed to calculate phiinv and logdet when varying RN
+
+        if self.rn_vary:
+            for k in range(len(self.key_list)):
+                self.params[self.key_list[k]] = x0[k]
         #parse current parameters using dictionary
-        self.get_parameters(x0)
+        self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
+
         #check if shape params have changed between runs
         dif_flag = np.zeros((self.Nwavelet + self.Nglitch))
         for i in range(self.Nwavelet):
@@ -253,6 +266,34 @@ def logdet_Sigma_helper(chol_Sigma):
     for itrj in prange(0,chol_Sigma.shape[0]):
         res += np.log(chol_Sigma[itrj,itrj])
     return 2*res
+
+#####
+#Function to generate wavelets w/ uniform priors
+#####
+@njit(parallel=False,fastmath=True)
+def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglitch, Nwavelet):
+    #glitch models
+    for i in range(Nglitch):
+        glitch_prm[i,0] = 10**(x0[int(glitch_indx[i,0])])
+        glitch_prm[i,1] = 10**(x0[int(glitch_indx[i,1])])
+        glitch_prm[i,2] = x0[int(glitch_indx[i,2])]
+        glitch_prm[i,3] = x0[int(glitch_indx[i,3])]
+        glitch_prm[i,4] = (365.25*24*3600)*x0[int(glitch_indx[i,4])]
+        glitch_prm[i,5] = (365.25*24*3600)*x0[int(glitch_indx[i,5])]
+    #wavelet models
+    for j in range(Nwavelet):
+        wavelet_prm[j,0] = 10**(x0[int(wavelet_indx[j,0])])
+        wavelet_prm[j,1] = np.arccos(x0[int(wavelet_indx[j,1])])
+        wavelet_prm[j,2] = x0[int(wavelet_indx[j,2])]
+        wavelet_prm[j,3] = x0[int(wavelet_indx[j,3])]
+        wavelet_prm[j,4] = x0[int(wavelet_indx[j,4])]
+        wavelet_prm[j,5] = x0[int(wavelet_indx[j,5])]
+        wavelet_prm[j,6] = (365.25*24*3600)*x0[int(wavelet_indx[j,6])]
+        wavelet_prm[j,7] = (365.25*24*3600)*x0[int(wavelet_indx[j,7])]
+        wavelet_prm[j,8] = 10**(x0[int(wavelet_indx[j,8])])
+        wavelet_prm[j,9] = 10**(x0[int(wavelet_indx[j,9])])
+
+    return glitch_prm, wavelet_prm
 
 #####
 #updating non-signal likelihood terms as we go
