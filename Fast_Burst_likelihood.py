@@ -191,6 +191,17 @@ class FastBurst:
                             self.MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
                             self.MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
 
+    ######
+    #Function that may be useful to help modify the M and N matrices without recalculating them
+    #Specifically for cases of changing/adding glitches and wavelets
+    ######
+    def M_N_helper(self, remove_index = 0, wavelet_change = False, glitch_change = False):
+
+        if wavelet_change:
+            #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
+        if glitch_change:
+            #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
+
 
     ######
     #calculates amplitudes for Signals
@@ -217,8 +228,8 @@ class FastBurst:
         #updating terms needed to calculate phiinv and logdet when varying RN
 
         if self.rn_vary or self.wn_vary:
+            self.params_previous = np.copy(self.params)
             for k in range(len(self.key_list)):
-                self.params_previous[self.key_list[k]] = self.params[self.key_list[k]]
                 self.params[self.key_list[k]] = x0[k]
         if self.wn_vary:
             self.Nvecs_previous = np.copy(self.Nvecs)
@@ -226,6 +237,7 @@ class FastBurst:
             self.Nvecs = List(self.pta.get_ndiag(self.params))
             self.TNTs = self.pta.get_TNT(self.params)
         #parse current parameters using dictionary
+        #get_parameters needs to change to account for changing indexes for wavelet/glitch parameters
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
 
         #check if shape params have changed between runs
@@ -292,6 +304,7 @@ class FastBurst:
             self.invCholSigmaTN = np.copy(self.invCholSigmaTN_previous)
             self.resres_logdet = np.copy(self.resres_logdet_previous)
             self.logdet = np.copy(self.logdet_previous)
+            #print(self.params)
 
 
 
