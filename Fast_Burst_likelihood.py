@@ -195,12 +195,12 @@ class FastBurst:
     #Function that may be useful to help modify the M and N matrices without recalculating them
     #Specifically for cases of changing/adding glitches and wavelets
     ######
-    def M_N_helper(self, remove_index = 0, wavelet_change = False, glitch_change = False):
-
-        if wavelet_change:
-            #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
-        if glitch_change:
-            #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
+    # def M_N_helper(self, remove_index = 0, wavelet_change = False, glitch_change = False):
+    #
+    #     if wavelet_change:
+    #         #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
+    #     if glitch_change:
+    #         #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
 
 
     ######
@@ -212,7 +212,7 @@ class FastBurst:
     #####
     #calculates lnliklihood for a set of signal parameters
     #####
-    def get_lnlikelihood(self, x0):
+    def get_lnlikelihood(self, x0, vary_white_noise = False, vary_red_noise = False):
 
         '''
         ######Understanding the components of logdet######
@@ -226,6 +226,8 @@ class FastBurst:
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
         '''
         #updating terms needed to calculate phiinv and logdet when varying RN
+        self.rn_vary = vary_red_noise
+        self.wn_vary = vary_white_noise
 
         if self.rn_vary or self.wn_vary:
             self.params_previous = np.copy(self.params)
@@ -258,6 +260,7 @@ class FastBurst:
                 dif_flag[self.Nwavelet+i] = 1
             if self.glitch_saved[i,3] != self.glitch_prm[i,3]:
                 dif_flag[self.Nwavelet+i] = 1
+        #print('dif_flag: ', dif_flag)
 
         #parse the pulsar indexes from parameters
         glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
