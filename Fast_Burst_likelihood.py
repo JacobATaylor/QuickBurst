@@ -124,8 +124,8 @@ class FastBurst:
             self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
             self.invCholSigmaTN = []
         #reset MM and NN to zeros when running this function
-        self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
-        self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
+        #self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
+        #self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
 
         for ii in range(self.Npsr):
             Ndiag = 1/self.Nvecs[ii]
@@ -148,23 +148,23 @@ class FastBurst:
 
             #first half of the NN and MM  will be wavelets
             for s in range(self.Nwavelet):
-                if dif_flag[s] == 1:
-                    Filt_cos[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.cos(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7])) #see PDF for derivation
-                    Filt_sin[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.sin(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7]))
-                    invCholSigmaTNfilter[s,0] = invCholSigmaTN@Filt_cos[s] #cholesky terms to be re-used
-                    invCholSigmaTNfilter[s,1] = invCholSigmaTN@Filt_sin[s]
+                #if dif_flag[s] == 1:
+                Filt_cos[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.cos(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7])) #see PDF for derivation
+                Filt_sin[s] = np.exp(-1*((self.toas[ii] - self.wavelet_prm[s,7])/self.wavelet_prm[s,6])**2)*np.sin(2*np.pi*self.wavelet_prm[s,0]*(self.toas[ii] - self.wavelet_prm[s,7]))
+                invCholSigmaTNfilter[s,0] = invCholSigmaTN@Filt_cos[s] #cholesky terms to be re-used
+                invCholSigmaTNfilter[s,1] = invCholSigmaTN@Filt_sin[s]
             #second half are glitches
             for j in range(self.Nglitch):
-                if dif_flag[j + self.Nwavelet] == 1:
-                    if (ii-0.5 <= self.glitch_prm[j,3] <= ii+0.5): #only populate filter functions for pulsar with glitcvh in it
-                        Filt_cos[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.cos(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4])) #see PDF for derivation
-                        Filt_sin[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.sin(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4]))
-                        invCholSigmaTNfilter[j + self.Nwavelet,0] = invCholSigmaTN@Filt_cos[j + self.Nwavelet]#cholesky terms to be re-used
-                        invCholSigmaTNfilter[j + self.Nwavelet,1] = invCholSigmaTN@Filt_sin[j + self.Nwavelet]
+                #if dif_flag[j + self.Nwavelet] == 1:
+                if (ii-0.5 <= self.glitch_prm[j,3] <= ii+0.5): #only populate filter functions for pulsar with glitch in it
+                    Filt_cos[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.cos(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4])) #see PDF for derivation
+                    Filt_sin[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.sin(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4]))
+                    invCholSigmaTNfilter[j + self.Nwavelet,0] = invCholSigmaTN@Filt_cos[j + self.Nwavelet]#cholesky terms to be re-used
+                    invCholSigmaTNfilter[j + self.Nwavelet,1] = invCholSigmaTN@Filt_sin[j + self.Nwavelet]
             #cholesky term for the residuals, only used in NN calc
             invCholSigmaTNres = invCholSigmaTN@self.residuals[ii]
 
-            #update the full N and M when we are looking at a pulsar that contains some glitches
+            #update the full N and M when we are looking at a pulsar that contains some glitches (due to cross terms)
             if ii in glitch_pulsars:
                 #populate MM,NN with wavelets and glitches (including cross terms)
                 for k in range(self.Nwavelet + self.Nglitch):
@@ -260,6 +260,7 @@ class FastBurst:
                 dif_flag[self.Nwavelet+i] = 1
             if self.glitch_saved[i,3] != self.glitch_prm[i,3]:
                 dif_flag[self.Nwavelet+i] = 1
+        #dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         #print('dif_flag: ', dif_flag)
 
         #parse the pulsar indexes from parameters
@@ -269,9 +270,12 @@ class FastBurst:
         #calculate the amplitudes of noise transients and wavelets
         sigma = self.get_sigmas(glitch_pulsars)
         #if we have new shape parameters, find the NN and MM matrixies from filter functions
+        self.NN_previous = np.copy(self.NN)
+        self.MMs_previous = np.copy(self.MMs)
         if 1 in dif_flag:
-            self.NN_previous = np.copy(self.NN)
-            self.MMs_previous = np.copy(self.MMs)
+            #print('run mn')
+            #self.NN_previous = np.copy(self.NN)
+            #self.MMs_previous = np.copy(self.MMs)
             self.get_M_N(glitch_pulsars, dif_flag)
 
         #update intrinsic likelihood terms when updating RN

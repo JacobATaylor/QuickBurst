@@ -76,7 +76,7 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
                 #point_to_test = np.tile(np.array([0.0, 0.54, 1.0, -8.0, -13.39, 2.0, 0.5]),i+1)
                 '''
     print('Number of pta params: ', len(pta.params))
-    #print(pta.param_names)#summary())
+    print(pta.param_names)#summary())
 
     #setting up temperature ladder
     if T_ladder is None:
@@ -521,7 +521,6 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
         #update our eigenvectors from the fisher matrix every n_fish_update iterations
         #
         #################################################################################
-
         if i%n_fish_update==0:
             #only update T>1 chains every 10th time
             if i%(n_fish_update*10)==0:
@@ -718,23 +717,31 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
             samples[j,i+1,:] = samples[j,i,:]
             a_no[6,j] += 1
             log_likelihood[j,i+1] = log_likelihood[j,i]
+            #print('prior issues')
             continue
 
         #print(j)
         #print(n_wavelet, n_glitch, gwb_on)
         #print(ptas[n_wavelet][n_glitch][gwb_on].get_lnprior(new_point))
         #print(ptas[n_wavelet][n_glitch][gwb_on].params)
-        #print(new_point)
+        #print('new point: ', new_point)
         #print(new_point-samples_current)
         #print('new point: ', new_point)
+        #print('previous like: ', QB_logl[j].get_lnlikelihood(samples[j,i,2:]))
+        #QB_logl[j].save_values(accept_new_step=False)
         log_L = QB_logl[j].get_lnlikelihood(new_point)
+        #print('logL: ', log_L)
         #log_L = ptas[n_wavelet][n_glitch][gwb_on].get_lnlikelihood(new_point)
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += new_log_prior
         log_acc_ratio += -log_likelihood[j,i]*betas[j,i]
         log_acc_ratio += -pta.get_lnprior(samples_current)
+        #print('previous like: ', log_likelihood[j,i])
+        #print('pta like: ', pta.get_lnlikelihood(samples[j,i,2:]))
 
         acc_ratio = np.exp(log_acc_ratio)
+        #print('acceptence ratio for step: ', acc_ratio)
+        #print('samples: ', samples[j,i,:])
         #if j==0: print(acc_ratio)
         if np.random.uniform()<=acc_ratio:
             #if j==0: print("ohh jeez")
@@ -766,8 +773,11 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
 def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_gwb_rn, include_gwb, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, QB_logl):
     #print("fast_jump")
     for j in range(n_chain):
+        #print('j1: ',j)
         n_wavelet = get_n_wavelet(samples, j, i)
+        #print('j2: ',j)
         n_glitch = get_n_glitch(samples, j, i)
+        #print('j3: ',j)
         #if j==0:
         #    print(n_wavelet)
         #    print(n_glitch)
@@ -839,7 +849,7 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
         #if j==0:
         #    print(samples_current)
         #    print(new_point)
-
+        #print('j4: ',j)
         #check if we are inside prior before calling likelihood, otherwise it throws an error
         new_log_prior = pta.get_lnprior(new_point)
         if new_log_prior==-np.inf: #check if prior is -inf - reject step if it is
@@ -849,13 +859,12 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
             continue
 
         #print(j)
-        #print(n_wavelet, n_glitch, gwb_on)
-        #print(ptas[n_wavelet][n_glitch][gwb_on].get_lnprior(new_point))
-        #print(ptas[n_wavelet][n_glitch][gwb_on].params)
-        #print(new_point)
-        #print(new_point-samples_current)
-        #print('new point: ', new_point)
+        #print('previous like QB: ', QB_logl[j].get_lnlikelihood(samples[j,i,2:]))
+        #QB_logl[j].save_values(accept_new_step=False)
         log_L = QB_logl[j].get_lnlikelihood(new_point)
+        #print('logL: ', log_L)
+        #print('previous like Saved: ', log_likelihood[j,i])
+        #print('pta like: ', pta.get_lnlikelihood(samples[j,i,2:]))
         #log_L = ptas[n_wavelet][n_glitch][gwb_on].get_lnlikelihood(new_point)
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += new_log_prior
@@ -1235,8 +1244,10 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
     #lnlikelihood at specified point
     if use_prior:
         nn = QB_logl.get_lnlikelihood(params) + pta.get_lnprior(params)
+        QB_logl.save_values(accept_new_step=False)
     else:
         nn = QB_logl.get_lnlikelihood(params)
+        QB_logl.save_values(accept_new_step=False)
 
     print('fish n_source {0}: dim {1}: params len {2}: array_index {3}'.format(n_source, dim, len(params), array_index))
     if flag == True:
@@ -1255,10 +1266,14 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
                 #lnlikelihood at +-epsilon positions
                 if use_prior:
                     pp = QB_logl.get_lnlikelihood(paramsPP) + pta.get_lnprior(paramsPP)
+                    QB_logl.save_values(accept_new_step=False)
                     mm = QB_logl.get_lnlikelihood(paramsMM) + pta.get_lnprior(paramsMM)
+                    QB_logl.save_values(accept_new_step=False)
                 else:
                     pp = QB_logl.get_lnlikelihood(paramsPP)
+                    QB_logl.save_values(accept_new_step=False)
                     mm = QB_logl.get_lnlikelihood(paramsMM)
+                    QB_logl.save_values(accept_new_step=False)
 
                 #print(pp, nn, mm)
 
@@ -1373,10 +1388,14 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
                 #lnlikelihood at +-epsilon positions
                 if use_prior:
                     pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsPP)
+                    QB_logl.save_values(accept_new_step=False)
                     mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsMM)
+                    QB_logl.save_values(accept_new_step=False)
                 else:
                     pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise)
+                    QB_logl.save_values(accept_new_step=False)
                     mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise)
+                    QB_logl.save_values(accept_new_step=False)
 
                 #print(pp, nn, mm)
 
