@@ -9,6 +9,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 
+import time
+
 import enterprise
 import enterprise.signals.parameter as parameter
 from enterprise.signals import signal_base
@@ -164,18 +166,18 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
         PT_acc_resume = npzfile['PT_acc']
         samples_resume = npzfile['samples']
 
-        N_resume = samples_resume.shape[1]
+        N_resume = samples_resume.shape[1]*n_fast_to_slow
         print("# of samples sucessfully read in: " + str(N_resume))
 
         samples = np.zeros((n_chain, N_resume+N, num_params))
-        samples[:,:N_resume,:] = np.copy(samples_resume)
+        samples[:,:N_resume:n_fast_to_slow,:] = np.copy(samples_resume)
 
         log_likelihood = np.zeros((n_chain,N_resume+N))
-        log_likelihood[:,:N_resume] = np.copy(log_likelihood_resume)
+        log_likelihood[:,:N_resume:n_fast_to_slow] = np.copy(log_likelihood_resume)
         betas = np.ones((n_chain,N_resume+N))
-        betas[:,:N_resume] = np.copy(betas_resume)
+        betas[:,:N_resume:n_fast_to_slow] = np.copy(betas_resume)
         PT_acc = np.zeros((n_chain-1,N_resume+N))
-        PT_acc[:,:N_resume] = np.copy(PT_acc_resume)
+        PT_acc[:,:N_resume:n_fast_to_slow] = np.copy(PT_acc_resume)
 
         QB_logl = []
         for j in range(n_chain):
@@ -320,12 +322,12 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
         T0_list = tau_scan_data['t0_edges']
 
         #check if same prior range was used
-        log_f0_max = float(pta.params[3]._typename.split('=')[2][:-1])
-        log_f0_min = float(pta.params[3]._typename.split('=')[1].split(',')[0])
-        t0_max = float(pta.params[8]._typename.split('=')[2][:-1])
-        t0_min = float(pta.params[8]._typename.split('=')[1].split(',')[0])
-        tau_max = float(pta.params[9]._typename.split('=')[2][:-1])
-        tau_min = float(pta.params[9]._typename.split('=')[1].split(',')[0])
+        log_f0_max = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[2][:-1])
+        log_f0_min = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[1].split(',')[0])
+        t0_max = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[2][:-1])
+        t0_min = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[1].split(',')[0])
+        tau_max = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[2][:-1])
+        tau_min = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[1].split(',')[0])
 
         print("#"*70)
         print("Tau-scan and MCMC prior range check (they must be the same)")
@@ -362,12 +364,12 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
         T0_list = glitch_tau_scan_data['t0_edges']
 
         #check if same prior range was used
-        log_f0_max = float(pta.params[3]._typename.split('=')[2][:-1])
-        log_f0_min = float(pta.params[3]._typename.split('=')[1].split(',')[0])
-        t0_max = float(pta.params[8]._typename.split('=')[2][:-1])
-        t0_min = float(pta.params[8]._typename.split('=')[1].split(',')[0])
-        tau_max = float(pta.params[9]._typename.split('=')[2][:-1])
-        tau_min = float(pta.params[9]._typename.split('=')[1].split(',')[0])
+        log_f0_max = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[2][:-1])
+        log_f0_min = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[1].split(',')[0])
+        t0_max = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[2][:-1])
+        t0_min = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[1].split(',')[0])
+        tau_max = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[2][:-1])
+        tau_min = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[1].split(',')[0])
 
         print("#"*70)
         print("Glitch tau--scan and MCMC prior range check (they must be the same)")
@@ -448,6 +450,8 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
         start_iter = N_resume-1 #-1 because if only 1 sample is read in that's the same as having a different starting point and start_iter should still be 0
         stop_iter = N_resume-1+N
 
+    t_start = time.time()
+
     for i in range(int(start_iter), int(stop_iter-1)): #-1 because ith step here produces (i+1)th sample based on ith sample
         ########################################################
         #
@@ -492,13 +496,13 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
         ########################################################
         if savefile is not None and i%save_every_n==0 and i!=start_iter:
             if not safe_save:
-                np.savez(savefile, samples=samples[:,:i,:], acc_fraction=acc_fraction, swap_record=swap_record, log_likelihood=log_likelihood[:,:i],
-                         betas=betas[:,:i], PT_acc=PT_acc[:,:i])
+                np.savez(savefile, samples=samples[:,:i:n_fast_to_slow,:], acc_fraction=acc_fraction, swap_record=swap_record, log_likelihood=log_likelihood[:,:i:n_fast_to_slow],
+                         betas=betas[:,:i:n_fast_to_slow], PT_acc=PT_acc[:,:i:n_fast_to_slow])
             else:
                 #save to temporary file, copy it into permananet file and remove the temp file
                 #prevents the loss of all data if the run is interupted when np.savez is running
-                np.savez(savefile + ".temp.npz", samples=samples[:,:i,:], acc_fraction=acc_fraction, swap_record=swap_record, log_likelihood=log_likelihood[:,:i],
-                         betas=betas[:,:i], PT_acc=PT_acc[:,:i])
+                np.savez(savefile + ".temp.npz", samples=samples[:,:i:n_fast_to_slow,:], acc_fraction=acc_fraction, swap_record=swap_record, log_likelihood=log_likelihood[:,:i:n_fast_to_slow],
+                         betas=betas[:,:i:n_fast_to_slow], PT_acc=PT_acc[:,:i:n_fast_to_slow])
                 shutil.copy(savefile + ".temp.npz", savefile)
                 os.remove(savefile + ".temp.npz")
         ########################################################
@@ -512,7 +516,8 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
                 print('Progress: {0:2.2f}% '.format(i/N*100) + '\r',end='')
             else:
                 print('Progress: {0:2.2f}% '.format(i/N*100) +
-                        'Acceptance fraction #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan, GWB_RJ, PT, fisher, noise_jump):')
+                        'Acceptance fraction #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan, GWB_RJ, PT, fisher, noise_jump):'+'\n')
+                print('Run Time: {0}s'.format(time.time()-t_start))
                 print(acc_fraction)
                 #print(PT_hist)
                 print(PT_acc[:,i])
@@ -584,8 +589,15 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
             if jump_decide<swap_probability:
                 do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, swap_record, vary_white_noise, include_gwb, num_noise_params, log_likelihood, PT_hist, PT_hist_idx)
 
+            #global proposal based on tau_scan
+            elif jump_decide<swap_probability+tau_scan_proposal_probability:
+                do_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, vary_white_noise, include_gwb, num_noise_params, tau_scan_data, log_likelihood, QB_logl, wavelet_indx)
+
             elif jump_decide<swap_probability + noise_jump_probability:
                 noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, eig_per_psr, per_puls_indx, include_gwb, num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, QB_logl)
+            #glitch model global proposal based on tau_scan
+            elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+gwb_switch_probability+noise_jump_probability+glitch_tau_scan_proposal_probability):
+                do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, vary_white_noise, include_gwb, num_noise_params, glitch_tau_scan_data, log_likelihood, QB_logl, glitch_indx)
             #do regular jump
             else:
                 regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_gwb_rn, include_gwb, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, QB_logl)
@@ -599,6 +611,310 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
     acc_fraction = a_yes/(a_no+a_yes)
     return samples, acc_fraction, swap_record, rj_record, pta, log_likelihood, betas, PT_acc
 
+################################################################################
+#
+#GLOBAL PROPOSAL BASED ON TAU-SCAN
+#
+################################################################################
+#@profile
+def do_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, vary_white_noise, include_gwb, num_noise_params, tau_scan_data, log_likelihood, QB_logl, wavelet_indx):
+    #print("TAU-GLOBAL")
+    tau_scan = tau_scan_data['tau_scan']
+    #print(i)
+    tau_scan_limit = 0
+    for TS in tau_scan:
+        TS_max = np.max(TS)
+        if TS_max>tau_scan_limit:
+            tau_scan_limit = TS_max
+    #print(tau_scan_limit)
+
+    TAU_list = list(tau_scan_data['tau_edges'])
+    F0_list = tau_scan_data['f0_edges']
+    T0_list = tau_scan_data['t0_edges']
+
+    #print(len(tau_scan))
+    #print(taus/(365.25*24*3600))
+    #print(np.array(TAU_list)/(365.25*24*3600))
+
+    #print("------------")
+    #print(tau_scan[0].shape)
+    #print(F0_list[0])
+    #print(T0_list[0])
+
+    #print(samples[0,i,:])
+    #print(i)
+
+    for j in range(n_chain):
+        #check if there's any wavelet -- stay at given point if not
+        n_wavelet = get_n_wavelet(samples, j, i)
+        n_glitch = get_n_glitch(samples, j, i)
+        #if j==0:
+        #    print(n_wavelet)
+        #    print(n_glitch)
+        #    print(samples[j,i,:])
+        #print(n_wavelet)
+        if n_wavelet==0:
+            samples[j,i+1,:] = samples[j,i,:]
+            a_no[3,j]+=1
+            log_likelihood[j,i+1] = log_likelihood[j,i]
+            #print("No source to vary!")
+            continue
+
+        if include_gwb:
+            gwb_on = get_gwb_on(samples, j, i, max_n_wavelet, max_n_glitch, num_noise_params)
+        else:
+            gwb_on = 0
+
+        log_f0_max = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[2][:-1])
+        log_f0_min = float(pta.params[wavelet_indx[0,3]]._typename.split('=')[1].split(',')[0])
+        t0_max = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[2][:-1])
+        t0_min = float(pta.params[wavelet_indx[0,8]]._typename.split('=')[1].split(',')[0])
+        tau_max = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[2][:-1])
+        tau_min = float(pta.params[wavelet_indx[0,9]]._typename.split('=')[1].split(',')[0])
+
+        accepted = False
+        while accepted==False:
+            #propose new distribution for shape parameters
+            log_f0_new = np.random.uniform(low=log_f0_min, high=log_f0_max)
+            t0_new = np.random.uniform(low=t0_min, high=t0_max)
+            tau_new = np.random.uniform(low=tau_min, high=tau_max)
+
+            #bin up distributions based on tau scan data
+            tau_idx = np.digitize(tau_new, np.array(TAU_list)) - 1
+            f0_idx = np.digitize(10**log_f0_new, np.array(F0_list[tau_idx])) - 1
+            t0_idx = np.digitize(t0_new, np.array(T0_list[tau_idx])/(365.25*24*3600)) - 1
+
+            #print(tau_new, t0_new, 10**log_f0_new)
+            #print(tau_idx, t0_idx, f0_idx)
+
+            #pick new tau scan point
+            tau_scan_new_point = tau_scan[tau_idx][f0_idx, t0_idx]
+            #print(tau_scan_new_point/tau_scan_limit)
+
+            #see if new tau scan point is accepted (normalized to max tau scan value from tau scan data)
+            if np.random.uniform()<(tau_scan_new_point/tau_scan_limit):
+                accepted = True
+                #print("Yeeeh!")
+
+        #randomly select other parameters (except sky location and psi, which we won't change here)
+
+        #cos_gwtheta_new = ptas[-1][gwb_on].params[0].sample()
+        #cos_gwtheta_old = np.copy(samples[j,i,2+0])
+        cos_gwtheta_old = np.copy(samples[j, i, 2+wavelet_indx[0,0]])
+        #gwphi_old = np.copy(samples[j,i,2+2])
+        gwphi_old =  np.copy(samples[j, i, 2+wavelet_indx[0,2]])
+        #psi_old = np.copy(samples[j,i,2+1])
+        psi_old = np.copy(samples[j, i, 2+wavelet_indx[0,1]])
+
+        #Sample new wavelet parameters
+        log10_h_new = pta.params[wavelet_indx[0,4]].sample()
+        log10_h_cross_new = pta.params[wavelet_indx[0,5]].sample()
+        phase0_new = pta.params[wavelet_indx[0,6]].sample()
+        phase0_cross_new = pta.params[wavelet_indx[0,7]].sample()
+
+        #select particular wavelet
+        wavelet_select = np.random.randint(n_wavelet)
+
+        samples_current = strip_samples(samples, j, i, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
+        #print('samples current: ',samples_current)
+        new_point = np.copy(samples_current)
+        new_point[wavelet_indx[wavelet_select,0]] = cos_gwtheta_old
+        new_point[wavelet_indx[wavelet_select,1]] = psi_old
+        new_point[wavelet_indx[wavelet_select,2]] = gwphi_old
+        new_point[wavelet_indx[wavelet_select,3]] = log_f0_new
+        new_point[wavelet_indx[wavelet_select,4]] = log10_h_new
+        new_point[wavelet_indx[wavelet_select,5]] = log10_h_cross_new
+        new_point[wavelet_indx[wavelet_select,6]] = phase0_new
+        new_point[wavelet_indx[wavelet_select,7]] = phase0_cross_new
+        new_point[wavelet_indx[wavelet_select,8]] = t0_new
+        new_point[wavelet_indx[wavelet_select,9]] = tau_new
+        #print('new point: ', new_point)
+
+        log_L = QB_logl[j].get_lnlikelihood(new_point)
+        log_acc_ratio = log_L*betas[j,i]
+        log_acc_ratio += pta.get_lnprior(new_point)
+        log_acc_ratio += -log_likelihood[j,i]*betas[j,i]
+        log_acc_ratio += -pta.get_lnprior(samples_current)
+
+        #getting ratio of proposal densities!
+        tau_old = samples[j,i,2+wavelet_indx[wavelet_select,9]]
+        f0_old = 10**samples[j,i,2+wavelet_indx[wavelet_select,3]]
+        t0_old = samples[j,i,2+wavelet_indx[wavelet_select,8]]
+
+        tau_idx_old = np.digitize(tau_old, np.array(TAU_list)) - 1
+        f0_idx_old = np.digitize(f0_old, np.array(F0_list[tau_idx_old])) - 1
+        t0_idx_old = np.digitize(t0_old, np.array(T0_list[tau_idx_old])/(365.25*24*3600)) - 1
+
+        tau_scan_old_point = tau_scan[tau_idx_old][f0_idx_old, t0_idx_old]
+
+        log10_h_old = samples[j,i,2+wavelet_indx[wavelet_select,4]]
+        log10_h_cross_old = samples[j,i,2+wavelet_indx[wavelet_select,5]]
+        hastings_extra_factor = pta.params[wavelet_indx[0,4]].get_pdf(log10_h_old) / pta.params[wavelet_indx[0,4]].get_pdf(log10_h_new)
+        hastings_extra_factor *= pta.params[wavelet_indx[0,5]].get_pdf(log10_h_cross_old) / pta.params[wavelet_indx[0,5]].get_pdf(log10_h_cross_new)
+
+        acc_ratio = np.exp(log_acc_ratio)*(tau_scan_old_point/tau_scan_new_point) * hastings_extra_factor
+        if np.random.uniform()<=acc_ratio:
+            samples[j,i+1,0] = n_wavelet
+            samples[j,i+1,1] = n_glitch
+            samples[j,i+1,2:] = new_point[:]
+            # samples[j,i+1,2:2+n_wavelet*10] = new_point[:n_wavelet*10]
+            # samples[j,i+1,2+max_n_wavelet*10:2+max_n_wavelet*10+n_glitch*6] = new_point[n_wavelet*10:n_wavelet*10+n_glitch*6]
+            # samples[j,i+1,2+max_n_wavelet*10+max_n_glitch*6:] = new_point[n_wavelet*10+n_glitch*6:]
+            a_yes[3,j]+=1
+            log_likelihood[j,i+1] = log_L
+            #print("accept step")
+            QB_logl[j].save_values(accept_new_step=True)
+        else:
+            samples[j,i+1,:] = samples[j,i,:]
+            a_no[3,j]+=1
+            log_likelihood[j,i+1] = log_likelihood[j,i]
+            #print("reject step")
+            QB_logl[j].save_values(accept_new_step=False)
+
+################################################################################
+#
+#GLITCH MODEL GLOBAL PROPOSAL BASED ON TAU-SCAN
+#
+################################################################################
+#@profile
+def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, vary_white_noise, include_gwb, num_noise_params, glitch_tau_scan_data, log_likelihood, QB_logl, glitch_indx):
+    #print("GLITCH TAU-GLOBAL")
+
+    TAU_list = list(glitch_tau_scan_data['tau_edges'])
+    F0_list = glitch_tau_scan_data['f0_edges']
+    T0_list = glitch_tau_scan_data['t0_edges']
+
+    for j in range(n_chain):
+        #print("-- ", j)
+        #check if there's any wavelet -- stay at given point if not
+        n_wavelet = get_n_wavelet(samples, j, i)
+        n_glitch = get_n_glitch(samples, j, i)
+        if n_glitch==0:
+            samples[j,i+1,:] = samples[j,i,:]
+            a_no[1,j]+=1
+            log_likelihood[j,i+1] = log_likelihood[j,i]
+            #print("No glitch to vary!")
+            continue
+
+        if include_gwb:
+            gwb_on = get_gwb_on(samples, j, i, max_n_wavelet, max_n_glitch, num_noise_params)
+        else:
+            gwb_on = 0
+
+        #select which glitch to change
+        glitch_select = np.random.randint(n_glitch)
+        #if j==0: print(glitch_select)
+
+        #pick which pulsar to move the glitch to (stay at where we are in 50% of the time) -- might be an issue with detailed balance
+        if np.random.uniform()<=0.5:
+            psr_idx = np.random.choice(len(pta.pulsars))
+        else:
+            psr_idx = int(np.round(samples[j,i,2+glitch_indx[glitch_select,3]]))
+        #if j==0: print(psr_idx)
+
+        #load in the appropriate tau-scan
+        tau_scan = glitch_tau_scan_data['tau_scan'+str(psr_idx)]
+        #print(i)
+        tau_scan_limit = 0
+        for TS in tau_scan:
+            TS_max = np.max(TS)
+            if TS_max>tau_scan_limit:
+                tau_scan_limit = TS_max
+        #print(tau_scan_limit)
+
+        log_f0_max = float(pta.params[glitch_indx[0,3]]._typename.split('=')[2][:-1])
+        log_f0_min = float(pta.params[glitch_indx[0,3]]._typename.split('=')[1].split(',')[0])
+        t0_max = float(pta.params[glitch_indx[0,8]]._typename.split('=')[2][:-1])
+        t0_min = float(pta.params[glitch_indx[0,8]]._typename.split('=')[1].split(',')[0])
+        tau_max = float(pta.params[glitch_indx[0,9]]._typename.split('=')[2][:-1])
+        tau_min = float(pta.params[glitch_indx[0,9]]._typename.split('=')[1].split(',')[0])
+
+        accepted = False
+        while accepted==False:
+            log_f0_new = np.random.uniform(low=log_f0_min, high=log_f0_max)
+            t0_new = np.random.uniform(low=t0_min, high=t0_max)
+            tau_new = np.random.uniform(low=tau_min, high=tau_max)
+
+            tau_idx = np.digitize(tau_new, np.array(TAU_list)) - 1
+            f0_idx = np.digitize(10**log_f0_new, np.array(F0_list[tau_idx])) - 1
+            t0_idx = np.digitize(t0_new, np.array(T0_list[tau_idx])/(365.25*24*3600)) - 1
+
+            #print(tau_new, t0_new, 10**log_f0_new)
+            #print(tau_idx, t0_idx, f0_idx)
+
+            tau_scan_new_point = tau_scan[tau_idx][f0_idx, t0_idx]
+            #print(tau_scan_new_point/tau_scan_limit)
+            if np.random.uniform()<(tau_scan_new_point/tau_scan_limit):
+                accepted = True
+                #print("Yeeeh!")
+
+        #randomly select phase and amplitude
+        phase0_new = pta.params[glitch_indx[0,2]].sample()
+        log10_h_new = pta.params[glitch_indx[0,1]].sample()
+
+        samples_current = strip_samples(samples, j, i, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
+        new_point = np.copy(samples_current)
+
+        new_point[glitch_indx[glitch_select,0]] = log_f0_new
+        new_point[glitch_indx[glitch_select,1]] = log10_h_new
+        new_point[glitch_indx[glitch_select,2]] = phase0_new
+        new_point[glitch_indx[glitch_select,3]] = float(psr_idx)
+        new_point[glitch_indx[glitch_select,4]] = t0_new
+        new_point[glitch_indx[glitch_select,5]] = tau_new
+
+        log_L = QB_logl[j].get_lnlikelihood(new_point)
+        log_acc_ratio = log_L*betas[j,i]
+        log_acc_ratio += pta.get_lnprior(new_point)
+        log_acc_ratio += -log_likelihood[j,i]*betas[j,i]
+        log_acc_ratio += -pta.get_lnprior(samples_current)
+
+        #getting ratio of proposal densities!
+        tau_old = samples[j,i,2+glitch_indx[glitch_select,5]]
+        f0_old = 10**samples[j,i,2+glitch_indx[glitch_select,0]]
+        t0_old = samples[j,i,2+glitch_indx[glitch_select,4]]
+
+        #get old psr index and load in appropriate tau scan
+        psr_idx_old = int(np.round(samples[j,i,2+glitch_indx[glitch_select,3]]))
+        tau_scan_old = glitch_tau_scan_data['tau_scan'+str(psr_idx_old)]
+        tau_scan_limit_old = 0
+        for TS in tau_scan_old:
+            TS_max = np.max(TS)
+            if TS_max>tau_scan_limit_old:
+                tau_scan_limit_old = TS_max
+        #print(tau_scan_limit_old)
+
+        tau_idx_old = np.digitize(tau_old, np.array(TAU_list)) - 1
+        f0_idx_old = np.digitize(f0_old, np.array(F0_list[tau_idx_old])) - 1
+        t0_idx_old = np.digitize(t0_old, np.array(T0_list[tau_idx_old])/(365.25*24*3600)) - 1
+
+        #print(tau_old, TAU_list)
+        #print(tau_idx_old, f0_idx_old, t0_idx_old)
+
+        tau_scan_old_point = tau_scan_old[tau_idx_old][f0_idx_old, t0_idx_old]
+
+        log10_h_old = samples[j,i,2+glitch_indx[glitch_select,1]]
+        hastings_extra_factor = pta.params[glitch_indx[0,1]].get_pdf(log10_h_old) / pta.params[glitch_indx[0,1]].get_pdf(log10_h_new)
+
+        acc_ratio = np.exp(log_acc_ratio)*(tau_scan_old_point/tau_scan_new_point) * (tau_scan_limit/tau_scan_limit_old) * hastings_extra_factor
+        if np.random.uniform()<=acc_ratio:
+            #if j==0: print("Ohh jeez")
+            samples[j,i+1,0] = n_wavelet
+            samples[j,i+1,1] = n_glitch
+            samples[j,i+1,2:] = new_point[:]
+            # samples[j,i+1,2:2+n_wavelet*10] = new_point[:n_wavelet*10]
+            # samples[j,i+1,2+max_n_wavelet*10:2+max_n_wavelet*10+n_glitch*6] = new_point[n_wavelet*10:n_wavelet*10+n_glitch*6]
+            # samples[j,i+1,2+max_n_wavelet*10+max_n_glitch*6:] = new_point[n_wavelet*10+n_glitch*6:]
+            a_yes[1,j]+=1
+            log_likelihood[j,i+1] = log_L
+            #print("accept step")
+            QB_logl[j].save_values(accept_new_step=True)
+        else:
+            samples[j,i+1,:] = samples[j,i,:]
+            a_no[1,j]+=1
+            log_likelihood[j,i+1] = log_likelihood[j,i]
+            #print("reject step")
+            QB_logl[j].save_values(accept_new_step=False)
+
 
 ################################################################################
 #
@@ -608,12 +924,16 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
 def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_gwb_rn, include_gwb, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, QB_logl):
     #print("Regular_jump")
     for j in range(n_chain):
+        #before_t = time.time()
         n_wavelet = get_n_wavelet(samples, j, i)
         n_glitch = get_n_glitch(samples, j, i)
         #if j==0:
         #    print(n_wavelet)
         #    print(n_glitch)
-
+        if include_gwb:
+            gwb_on = get_gwb_on(samples, j, i, max_n_wavelet, max_n_glitch, num_noise_params)
+        else:
+            gwb_on = 0
 
         samples_current = strip_samples(samples, j, i, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
 
@@ -729,7 +1049,9 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
         #print('new point: ', new_point)
         #print('previous like: ', QB_logl[j].get_lnlikelihood(samples[j,i,2:]))
         #QB_logl[j].save_values(accept_new_step=False)
+
         log_L = QB_logl[j].get_lnlikelihood(new_point)
+
         #print('logL: ', log_L)
         #log_L = ptas[n_wavelet][n_glitch][gwb_on].get_lnlikelihood(new_point)
         log_acc_ratio = log_L*betas[j,i]
@@ -756,6 +1078,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
             log_likelihood[j,i+1] = log_L
             #print("accept step")
             QB_logl[j].save_values(accept_new_step=True)
+            #print('regular time: ', time.time() - before_t)
         else:
             samples[j,i+1,:] = samples[j,i,:]
             #print(samples[j,i+1,:])
@@ -763,6 +1086,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
             log_likelihood[j,i+1] = log_likelihood[j,i]
             #print("rejectS step")
             QB_logl[j].save_values(accept_new_step=False)
+            #print('regular time: ', time.time() - before_t)
 
 
 ################################################################################
@@ -773,6 +1097,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a
 def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_gwb_rn, include_gwb, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, QB_logl):
     #print("fast_jump")
     for j in range(n_chain):
+        #before_t = time.time()
         #print('j1: ',j)
         n_wavelet = get_n_wavelet(samples, j, i)
         #print('j2: ',j)
@@ -851,7 +1176,9 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
         #    print(new_point)
         #print('j4: ',j)
         #check if we are inside prior before calling likelihood, otherwise it throws an error
+        #before_prior = time.time()
         new_log_prior = pta.get_lnprior(new_point)
+        #print('Prior time: ', time.time() - before_prior)
         if new_log_prior==-np.inf: #check if prior is -inf - reject step if it is
             samples[j,i+1,:] = samples[j,i,:]
             a_no[6,j] += 1
@@ -861,8 +1188,9 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
         #print(j)
         #print('previous like QB: ', QB_logl[j].get_lnlikelihood(samples[j,i,2:]))
         #QB_logl[j].save_values(accept_new_step=False)
+
         log_L = QB_logl[j].get_lnlikelihood(new_point)
-        #print('logL: ', log_L)
+
         #print('previous like Saved: ', log_likelihood[j,i])
         #print('pta like: ', pta.get_lnlikelihood(samples[j,i,2:]))
         #log_L = ptas[n_wavelet][n_glitch][gwb_on].get_lnlikelihood(new_point)
@@ -886,6 +1214,7 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
             log_likelihood[j,i+1] = log_L
             #print("accept step")
             QB_logl[j].save_values(accept_new_step=True)
+            #print('fast time: ', time.time() - before_t)
         else:
             samples[j,i+1,:] = samples[j,i,:]
             #print(samples[j,i+1,:])
@@ -893,6 +1222,7 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_ye
             log_likelihood[j,i+1] = log_likelihood[j,i]
             #print("rejectS step")
             QB_logl[j].save_values(accept_new_step=False)
+            #print('fast time: ', time.time() - before_t)
 
 
 ################################################################################
@@ -1231,6 +1561,7 @@ def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, samples, i, betas, a_y
 #
 ################################################################################
 def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sources=1, dim=10, array_index=None, use_prior=False, flag = False, vary_white_noise = False, vary_red_noise = False):#offset=0, use_prior=False):
+    print('Input params: ', params)
     n_source=n_sources # this needs to not be used for the non-wavelet/glitch indexing (set to 1)
     eig = []
 
@@ -1243,13 +1574,12 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
         fisher = np.zeros((n_source,dim*index_rows,dim*index_rows))
     #lnlikelihood at specified point
     if use_prior:
-        nn = QB_logl.get_lnlikelihood(params) + pta.get_lnprior(params)
-        QB_logl.save_values(accept_new_step=False)
+        nn = QB_logl.get_lnlikelihood(params,no_step = True) + pta.get_lnprior(params)
     else:
-        nn = QB_logl.get_lnlikelihood(params)
-        QB_logl.save_values(accept_new_step=False)
+        nn = QB_logl.get_lnlikelihood(params,no_step = True)
 
     print('fish n_source {0}: dim {1}: params len {2}: array_index {3}'.format(n_source, dim, len(params), array_index))
+    #flag = True if doing wavelet/glitch fisher matrix calculations
     if flag == True:
         for k in range(n_source):
             #print(k)
@@ -1265,15 +1595,11 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
 
                 #lnlikelihood at +-epsilon positions
                 if use_prior:
-                    pp = QB_logl.get_lnlikelihood(paramsPP) + pta.get_lnprior(paramsPP)
-                    QB_logl.save_values(accept_new_step=False)
-                    mm = QB_logl.get_lnlikelihood(paramsMM) + pta.get_lnprior(paramsMM)
-                    QB_logl.save_values(accept_new_step=False)
+                    pp = QB_logl.get_lnlikelihood(paramsPP,no_step = True) + pta.get_lnprior(paramsPP)
+                    mm = QB_logl.get_lnlikelihood(paramsMM,no_step = True) + pta.get_lnprior(paramsMM)
                 else:
-                    pp = QB_logl.get_lnlikelihood(paramsPP)
-                    QB_logl.save_values(accept_new_step=False)
-                    mm = QB_logl.get_lnlikelihood(paramsMM)
-                    QB_logl.save_values(accept_new_step=False)
+                    pp = QB_logl.get_lnlikelihood(paramsPP,no_step = True)
+                    mm = QB_logl.get_lnlikelihood(paramsMM,no_step = True)
 
                 #print(pp, nn, mm)
 
@@ -1284,43 +1610,43 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
                 #print(-(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon))
                 fisher[k,i,i] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
 
-            # #calculate off-diagonal elements
-            # for i in range(dim):
-            #     for j in range(i+1,dim):
-            #         #create parameter vectors with ++, --, +-, -+ epsilon in the ith and jth component
-            #         paramsPP = np.copy(params)
-            #         paramsMM = np.copy(params)
-            #         paramsPM = np.copy(params)
-            #         paramsMP = np.copy(params)
-            #         #looping through wavelets or glitch terms only and perturbing by small amount
-            #         paramsPP[array_index[k,i]] += epsilon
-            #         paramsPP[array_index[k,j]] += epsilon
-            #         paramsMM[array_index[k,i]] -= epsilon
-            #         paramsMM[array_index[k,j]] -= epsilon
-            #         paramsPM[array_index[k,i]] += epsilon
-            #         paramsPM[array_index[k,j]] -= epsilon
-            #         paramsMP[array_index[k,i]] -= epsilon
-            #         paramsMP[array_index[k,j]] += epsilon
-            #
-            #         #lnlikelihood at those positions
-            #         if use_prior:
-            #             pp = QB_logl.get_lnlikelihood(paramsPP) + pta.get_lnprior(paramsPP)
-            #             mm = QB_logl.get_lnlikelihood(paramsMM) + pta.get_lnprior(paramsMM)
-            #             pm = QB_logl.get_lnlikelihood(paramsPM) + pta.get_lnprior(paramsPM)
-            #             mp = QB_logl.get_lnlikelihood(paramsMP) + pta.get_lnprior(paramsMP)
-            #         else:
-            #             pp = QB_logl.get_lnlikelihood(paramsPP)
-            #             mm = QB_logl.get_lnlikelihood(paramsMM)
-            #             pm = QB_logl.get_lnlikelihood(paramsPM)
-            #             mp = QB_logl.get_lnlikelihood(paramsMP)
-            #
-            #         #calculate off-diagonal elements of the Hessian from a central finite element scheme
-            #         #note the minus sign compared to the regular Hessian
-            #         #print('off-diagonal')
-            #         #print(pp,mp,pm,mm)
-            #         #print(-(pp - mp - pm + mm)/(4.0*epsilon*epsilon))
-            #         fisher[k,i,j] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
-            #         fisher[k,j,i] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+            #calculate off-diagonal elements
+            for i in range(dim):
+                for j in range(i+1,dim):
+                    #create parameter vectors with ++, --, +-, -+ epsilon in the ith and jth component
+                    paramsPP = np.copy(params)
+                    paramsMM = np.copy(params)
+                    paramsPM = np.copy(params)
+                    paramsMP = np.copy(params)
+                    #looping through wavelets or glitch terms only and perturbing by small amount
+                    paramsPP[array_index[k,i]] += epsilon
+                    paramsPP[array_index[k,j]] += epsilon
+                    paramsMM[array_index[k,i]] -= epsilon
+                    paramsMM[array_index[k,j]] -= epsilon
+                    paramsPM[array_index[k,i]] += epsilon
+                    paramsPM[array_index[k,j]] -= epsilon
+                    paramsMP[array_index[k,i]] -= epsilon
+                    paramsMP[array_index[k,j]] += epsilon
+
+                    #lnlikelihood at those positions
+                    if use_prior:
+                        pp = QB_logl.get_lnlikelihood(paramsPP,no_step = True) + pta.get_lnprior(paramsPP)
+                        mm = QB_logl.get_lnlikelihood(paramsMM,no_step = True) + pta.get_lnprior(paramsMM)
+                        pm = QB_logl.get_lnlikelihood(paramsPM,no_step = True) + pta.get_lnprior(paramsPM)
+                        mp = QB_logl.get_lnlikelihood(paramsMP,no_step = True) + pta.get_lnprior(paramsMP)
+                    else:
+                        pp = QB_logl.get_lnlikelihood(paramsPP,no_step = True)
+                        mm = QB_logl.get_lnlikelihood(paramsMM,no_step = True)
+                        pm = QB_logl.get_lnlikelihood(paramsPM,no_step = True)
+                        mp = QB_logl.get_lnlikelihood(paramsMP,no_step = True)
+
+                    #calculate off-diagonal elements of the Hessian from a central finite element scheme
+                    #note the minus sign compared to the regular Hessian
+                    #print('off-diagonal')
+                    #print(pp,mp,pm,mm)
+                    #print(-(pp - mp - pm + mm)/(4.0*epsilon*epsilon))
+                    fisher[k,i,j] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+                    fisher[k,j,i] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
 
             #print(fisher)
             #correct for the given temperature of the chain
@@ -1387,15 +1713,11 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
 
                 #lnlikelihood at +-epsilon positions
                 if use_prior:
-                    pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsPP)
-                    QB_logl.save_values(accept_new_step=False)
-                    mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsMM)
-                    QB_logl.save_values(accept_new_step=False)
+                    pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsPP)
+                    mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsMM)
                 else:
-                    pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise)
-                    QB_logl.save_values(accept_new_step=False)
-                    mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise)
-                    QB_logl.save_values(accept_new_step=False)
+                    pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise, no_step = True)
+                    mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise, no_step = True)
 
                 #print(pp, nn, mm)
 
@@ -1405,46 +1727,46 @@ def get_fisher_eigenvectors(params, pta, QB_logl, T_chain=1, epsilon=1e-4, n_sou
                 #print(pp,nn,mm)
                 #print(-(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon))
                 fisher[1,i+n*dim,i+n*dim] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
-        # for n in range(index_rows):
-        #     dim = len(array_index[n])
-        #     #print('Dimensions!!!!!: ', dim)
-        #     #calculate off-diagonal elements
-        #     for i in range(dim):
-        #         for j in range(i+1,dim):
-        #             #create parameter vectors with ++, --, +-, -+ epsilon in the ith and jth component
-        #             paramsPP = np.copy(params)
-        #             paramsMM = np.copy(params)
-        #             paramsPM = np.copy(params)
-        #             paramsMP = np.copy(params)
-        #
-        #             paramsPP[array_index[n][i]] += epsilon
-        #             paramsPP[array_index[n][j]] += epsilon
-        #             paramsMM[array_index[n][i]] -= epsilon
-        #             paramsMM[array_index[n][j]] -= epsilon
-        #             paramsPM[array_index[n][i]] += epsilon
-        #             paramsPM[array_index[n][j]] -= epsilon
-        #             paramsMP[array_index[n][i]] -= epsilon
-        #             paramsMP[array_index[n][j]] += epsilon
-        #
-        #             #lnlikelihood at those positions
-        #             if use_prior:
-        #                 pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsPP)
-        #                 mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsMM)
-        #                 pm = QB_logl.get_lnlikelihood(paramsPM, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsPM)
-        #                 mp = QB_logl.get_lnlikelihood(paramsMP, vary_white_noise, vary_red_noise) + pta.get_lnprior(paramsMP)
-        #             else:
-        #                 pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise)
-        #                 mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise)
-        #                 pm = QB_logl.get_lnlikelihood(paramsPM, vary_white_noise, vary_red_noise)
-        #                 mp = QB_logl.get_lnlikelihood(paramsMP, vary_white_noise, vary_red_noise)
-        #
-        #             #calculate off-diagonal elements of the Hessian from a central finite element scheme
-        #             #note the minus sign compared to the regular Hessian
-        #             #print('off-diagonal')
-        #             #print(pp,mp,pm,mm)
-        #             #print(-(pp - mp - pm + mm)/(4.0*epsilon*epsilon))
-        #             fisher[1,i+n*dim,j+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
-        #             fisher[1,j+n*dim,i+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+        for n in range(index_rows):
+            dim = len(array_index[n])
+            #print('Dimensions!!!!!: ', dim)
+            #calculate off-diagonal elements
+            for i in range(dim):
+                for j in range(i+1,dim):
+                    #create parameter vectors with ++, --, +-, -+ epsilon in the ith and jth component
+                    paramsPP = np.copy(params)
+                    paramsMM = np.copy(params)
+                    paramsPM = np.copy(params)
+                    paramsMP = np.copy(params)
+
+                    paramsPP[array_index[n][i]] += epsilon
+                    paramsPP[array_index[n][j]] += epsilon
+                    paramsMM[array_index[n][i]] -= epsilon
+                    paramsMM[array_index[n][j]] -= epsilon
+                    paramsPM[array_index[n][i]] += epsilon
+                    paramsPM[array_index[n][j]] -= epsilon
+                    paramsMP[array_index[n][i]] -= epsilon
+                    paramsMP[array_index[n][j]] += epsilon
+
+                    #lnlikelihood at those positions
+                    if use_prior:
+                        pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsPP)
+                        mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsMM)
+                        pm = QB_logl.get_lnlikelihood(paramsPM, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsPM)
+                        mp = QB_logl.get_lnlikelihood(paramsMP, vary_white_noise, vary_red_noise, no_step = True) + pta.get_lnprior(paramsMP)
+                    else:
+                        pp = QB_logl.get_lnlikelihood(paramsPP, vary_white_noise, vary_red_noise, no_step = True)
+                        mm = QB_logl.get_lnlikelihood(paramsMM, vary_white_noise, vary_red_noise, no_step = True)
+                        pm = QB_logl.get_lnlikelihood(paramsPM, vary_white_noise, vary_red_noise, no_step = True)
+                        mp = QB_logl.get_lnlikelihood(paramsMP, vary_white_noise, vary_red_noise, no_step = True)
+
+                    #calculate off-diagonal elements of the Hessian from a central finite element scheme
+                    #note the minus sign compared to the regular Hessian
+                    #print('off-diagonal')
+                    #print(pp,mp,pm,mm)
+                    #print(-(pp - mp - pm + mm)/(4.0*epsilon*epsilon))
+                    fisher[1,i+n*dim,j+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+                    fisher[1,j+n*dim,i+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
 
 
         #correct for the given temperature of the chain

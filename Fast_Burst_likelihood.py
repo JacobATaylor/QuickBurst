@@ -212,7 +212,7 @@ class FastBurst:
     #####
     #calculates lnliklihood for a set of signal parameters
     #####
-    def get_lnlikelihood(self, x0, vary_white_noise = False, vary_red_noise = False):
+    def get_lnlikelihood(self, x0, vary_white_noise = False, vary_red_noise = False, no_step = False):
 
         '''
         ######Understanding the components of logdet######
@@ -291,6 +291,8 @@ class FastBurst:
         else:
             resres_logdet = self.resres_logdet
         #calls jit function that compiles all likelihood contributions
+        if no_step:
+            self.save_values(accept_new_step=False)
         return liklihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
 
     #####
