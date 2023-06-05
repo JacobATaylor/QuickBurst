@@ -22,11 +22,11 @@ import line_profiler
 #   function to calculate likelihoods
 ########
 
-class FastBurst:
+class QuickBurst:
     #####
     #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
     #####
-    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch, Nwavelet, rn_vary, wn_vary):
+    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch, Nwavelet, rn_vary, wn_vary,  prior_recovery=False):
 
         #model parameters that shouldn't change for a run
         self.pta = pta
@@ -50,7 +50,7 @@ class FastBurst:
             self.pos[i] = self.psrs[i].pos
 
         self.logdet = 0
-        for (l,m) in self.pta.get_rNr_logdet(params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
+        for (l,m) in self.pta.get_rNr_logdet(self.params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
             self.logdet += m
         self.logdet_previous = np.copy(self.logdet)
         #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
@@ -69,8 +69,12 @@ class FastBurst:
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
         self.rn_vary = rn_vary
+        self.no_step = False
         self.resres_logdet = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
         self.resres_logdet_previous = np.copy(self.resres_logdet)
+
+        #check if we are doing a prior recovery runs
+        self.prior_recovery=prior_recovery
 
         #max number of glitches and signals that can be handeled
         self.Nglitch = Nglitch
@@ -114,6 +118,7 @@ class FastBurst:
             self.wavelet_indx[j,8] = self.key_list.index('wavelet_'+str(j)+'_log10_h')
             self.wavelet_indx[j,9] = self.key_list.index('wavelet_'+str(j)+'_log10_h_cross')
 
+
     #####
     #generates the MM and NN matrixies from filter functions
     #####
@@ -121,7 +126,7 @@ class FastBurst:
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
         if self.rn_vary or self.wn_vary:
-            self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+            #self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
             self.invCholSigmaTN = []
         #reset MM and NN to zeros when running this function
         #self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
@@ -225,14 +230,24 @@ class FastBurst:
         M = Design matrix
         F = Fourier matrix (matrix of fourier coefficients and sin/cos terms)
         '''
+        #prior recovery condition
+        if self.prior_recovery:
+            return 1.0
+        #vary_red_noise = True
+        #vary_white_noise = True
         #updating terms needed to calculate phiinv and logdet when varying RN
         self.rn_vary = vary_red_noise
         self.wn_vary = vary_white_noise
+        self.no_step = no_step
 
         if self.rn_vary or self.wn_vary:
+            d0 = {}
+            for ii in range(len(x0)):
+                d0[self.pta.param_names[ii]] = x0[ii]
             self.params_previous = np.copy(self.params)
-            for k in range(len(self.key_list)):
-                self.params[self.key_list[k]] = x0[k]
+            self.params = d0
+            # for k in range(len(self.key_list)):
+            #     self.params[self.key_list[k]] = x0[k]
         if self.wn_vary:
             self.Nvecs_previous = np.copy(self.Nvecs)
             self.TNTs_previous = np.copy(self.TNTs)
@@ -272,6 +287,9 @@ class FastBurst:
         #if we have new shape parameters, find the NN and MM matrixies from filter functions
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
+        self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+        if self.rn_vary  or self.wn_vary:
+            dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
             #print('run mn')
             #self.NN_previous = np.copy(self.NN)
@@ -290,10 +308,11 @@ class FastBurst:
             self.resres_logdet = np.copy(resres_logdet)
         else:
             resres_logdet = self.resres_logdet
-        #calls jit function that compiles all likelihood contributions
-        if no_step:
+        #calls jitted function that compiles all likelihood contributions
+        temp_like = liklihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        if self.no_step:
             self.save_values(accept_new_step=False)
-        return liklihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        return temp_like
 
     #####
     #replaces saved values when deciding on MCMC step
@@ -305,15 +324,74 @@ class FastBurst:
             self.glitch_saved = np.copy(self.glitch_prm)
         #if we stay at the original point, re-load all the values from before the step
         else:
-            self.params = np.copy(self.params_previous)
-            self.Nvecs = np.copy(self.Nvecs_previous)
-            self.TNTs = np.copy(self.TNTs_previous)
+            #if statments to check if the "params previous have actually been updated"
+            if self.rn_vary or self.wn_vary:
+                self.params = np.copy(self.params_previous)
+                self.resres_logdet = np.copy(self.resres_logdet_previous)
+            if self.wn_vary:
+                self.Nvecs = np.copy(self.Nvecs_previous)
+                self.TNTs = np.copy(self.TNTs_previous)
+                self.logdet = np.copy(self.logdet_previous)
             self.NN = np.copy(self.NN_previous)
             self.MMs = np.copy(self.MMs_previous)
             self.invCholSigmaTN = np.copy(self.invCholSigmaTN_previous)
-            self.resres_logdet = np.copy(self.resres_logdet_previous)
-            self.logdet = np.copy(self.logdet_previous)
             #print(self.params)
+
+    #####
+    #replaces saved values when deciding on MCMC step
+    #####
+    def validate_values(self, x0, vary_white_noise = False, vary_red_noise = False):
+        print('validate values')
+        print('self.wn_vary/vary_white_noise: ', self.wn_vary, vary_white_noise)
+        if vary_red_noise or vary_white_noise:
+            d0 = {}
+            for ii in range(len(x0)):
+                d0[self.pta.param_names[ii]] = x0[ii]
+            params_test = d0
+            #assert params_test == self.params
+            if params_test != self.params:
+                print('saved params missmatched:')
+                #print(params_test)
+                #print(self.params)
+            else:
+                print('params ok')
+
+        if vary_white_noise:
+            Nvecs_test = List(self.pta.get_ndiag(self.params))
+            TNTs_test = self.pta.get_TNT(self.params)
+            #assert Nvecs_test == self.Nvecs
+            #assert np.all(TNTs_test == self.TNTs)
+            if np.all(Nvecs_test) != np.all(self.Nvecs):
+                print('saved Nvecs missmatched:')
+                print(Nvecs_test)
+                print(self.Nvecs)
+            else:
+                print('Nvecs ok')
+            if np.all(TNTs_test) != np.all(self.TNTs):
+                print('saved TNTs missmatched:')
+                print(TNTs_test)
+                print(self.TNTs)
+            logdet_test = 0
+            for (l,m) in self.pta.get_rNr_logdet(self.params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
+                logdet_test += m
+            #assert logdet_test == self.logdet
+            if logdet_test != self.logdet:
+                print('saved logdet missmatched:')
+                print(logdet_test)
+                print(self.logdet)
+            else:
+                print('logdet ok:')
+                print(logdet_test)
+                print(self.logdet)
+        else:
+            logdet_test = self.logdet
+        if vary_red_noise or vary_white_noise:
+            resres_logdet_test = logdet_test + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
+            #assert resres_logdet_test == self.resres_logdet
+            if resres_logdet_test != self.resres_logdet:
+                print('saved resres_logdet missmatched:')
+                print(resres_logdet_test)
+                print(self.resres_logdet)
 
 
 
@@ -471,3 +549,28 @@ def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglit
                 for l in range(Nwavelet):
                     LogL += -1/2*(sigma[i,k,0]*(sigma[i,l,0]*MMs[i, 0+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 0+2*k, 1+2*l]) + sigma[i,k,1]*(sigma[i,l,0]*MMs[i, 1+2*k, 0+2*l] + sigma[i,l,1]*MMs[i, 1+2*k, 1+2*l]))
     return LogL
+
+
+# @njit(fastmath=True,parallel=False)
+# class FastBurst_info:
+#     def __init__(self,params, pta,Npsr,tref,Nglitch, Nwavelet, glitch_indx, wavelet_indx):
+#         #loading in parameters for the class to hold onto
+#         self.params = params
+#         self.saved_params = params
+#     def load_parameters(self,params):
+#         #recieve new parameters from regular burst
+#         self.params = params
+#     def save_params(self, params, accept = False):
+#         #save parameters if step is accepted to give back to regular burst
+#         self.saved_params = params
+#         QuickBurst.save_values(self.saved_params)
+#         Quickburst.validate_values()
+#
+#         #after saving params, validate params here is same as current params in main likelihood class
+#
+#     def jit_likelihood(self, x0):
+#         #fast calculation of the lnlikelihood
+#         temp_sigma = get_sigmas(glitch_pulsars)
+#         temp_like = likelihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+#
+#         return temp_like

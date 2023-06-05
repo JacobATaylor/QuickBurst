@@ -22,7 +22,7 @@ from numba.typed import List
 ################################################################################
 class FastPrior:
     """helper class to set up information about priors"""
-    def __init__(self, pta, psrs, par_names_cw_ext):
+    def __init__(self, pta, psrs):#, par_names_cw_ext):
         """pta is an enterprise pta and par_names_cw_ext is a list of the extrinsic parameters"""
         self.pta = pta
         self.param_names = List(pta.param_names)
@@ -47,13 +47,30 @@ class FastPrior:
         normal_dist_pars = []
         nm_dist_lows = []
 
-        #store ranges for extrinsic parameters
-        cw_ext_lows = []
-        cw_ext_highs = []
-        cw_pars = []
+        #Wavelet/glitch prior bounds
+        wave_glitch_uf_lows = []
+        wave_glitch_uf_highs = []
+        wave_glitch_le_lows = []
+        wave_glitch_le_highs = []
+        wave_glitch_uniform_pars = []
+        wave_glitch_lin_exp_pars = []
+
 
         for par in self.pta.params:
             #print(par)
+            #Special treatment for wavelet/glitch priors
+            '''
+            if 'wavelet' or 'glitch' in par:
+                if "Uniform" in par._typename:
+                    wave_glitch_uniform_pars.append(par.name)
+                    wave_glitch_uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    wave_glitch_uf_highs.append(float(par._typename.split('=')[2][:-1]))
+                elif "LinearExp" in par._typename:
+                    wave_glitch_lin_exp_pars.append(par.name)
+                    wave_glitch_le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    wave_glitch_le_highs.append(float(par._typename.split('=')[2][:-1]))
+            else:
+                '''
             if "Uniform" in par._typename:
                 uniform_pars.append(par.name)
                 uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
@@ -87,10 +104,16 @@ class FastPrior:
                 px_errs.append(px_dist_err/px_dist**2)
                 px_dist_lows.append(0.0)
 
-            if par.name in par_names_cw_ext:
-                cw_pars.append(par.name)
-                cw_ext_lows.append(float(par._typename.split('=')[1].split(',')[0]))
-                cw_ext_highs.append(float(par._typename.split('=')[2][:-1]))
+        self.uniform_par_names = []
+        self.uniform_par_names.append(uniform_pars)
+
+        self.uniform_par_names = np.array(self.uniform_par_names)
+
+        #special class attributes for wavelet/glitch terms
+        #self.wave_glitch_uniform_pars_ids = np.array(self.param_names.index(u_par) for u_par in uniform_pars], dtype='int')
+        print('uniform params: ',uniform_pars)
+        print('uniform lows: ',uf_lows)
+        print('uniform highs: ',uf_highs)
 
 
         self.uniform_lows = np.array(uf_lows)
@@ -108,10 +131,12 @@ class FastPrior:
         self.normal_par_ids = np.array([self.param_names.index(n_par) for n_par in normal_pars], dtype='int')
         self.dm_par_ids = np.array([self.param_names.index(dm_par) for dm_par in dm_pars], dtype='int')
         self.px_par_ids = np.array([self.param_names.index(px_par) for px_par in px_pars], dtype='int')
+        '''
         self.cw_ext_par_ids = np.array([self.param_names.index(c_par) for c_par in cw_pars], dtype='int')
 
         self.cw_ext_lows = np.array(cw_ext_lows)
         self.cw_ext_highs = np.array(cw_ext_highs)
+        '''
 
         #logic for cutting off normally distributed distances so they don't go below 0
         self.normal_dist_par_ids = np.array([self.param_names.index(n_par) for n_par in normal_dist_pars], dtype='int')
@@ -163,14 +188,20 @@ class FastPrior:
         #part of the likelihood that is the same independent of the parameter values for all points with finite log prior
         self.global_common = self.global_uniform+self.global_lin_exp+self.global_normal+self.global_dm
 
+        #self.param_rejections = np.array((len(self.pta.params), 1))
+
+        #self.param_rejections = [0]*len(self.param_names)
+        #print('Param rejections: ', self.param_rejections)
     def get_lnprior(self, x0):
         """wrapper to get ln prior"""
-        return get_lnprior_helper(x0, self.uniform_par_ids, self.uniform_lows, self.uniform_highs,\
+        lprior = get_lnprior_helper(x0, self.uniform_par_ids, self.uniform_lows, self.uniform_highs,\
                                       self.lin_exp_par_ids, self.lin_exp_lows, self.lin_exp_highs,\
                                       self.normal_par_ids, self.normal_mus, self.normal_sigs,\
                                       self.dm_par_ids, self.dm_dists, self.dm_errs,\
                                       self.px_par_ids, self.px_mus, self.px_errs,\
-                                      self.global_common)
+                                      self.global_common) #self.uniform_par_names, self.param_rejections)
+        #self.param_rejections = reject_rates
+        return lprior
 
     def get_sample(self, idx):
         """wrapper to quickly return random prior draw for the (idx)th parameter"""
@@ -179,6 +210,10 @@ class FastPrior:
                                       self.normal_par_ids, self.normal_mus, self.normal_sigs,\
                                       self.dm_par_ids, self.dm_dists, self.dm_errs,\
                                       self.px_par_ids, self.px_mus, self.px_errs)
+
+    # def rejection_rates(self):
+    #     return self.param_rejections
+
 
 @njit()
 def get_sample_helper_full(n_par,uniform_par_ids, uniform_lows, uniform_highs,
@@ -260,10 +295,9 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
                            normal_par_ids, normal_mus, normal_sigs,\
                            dm_par_ids, dm_dists, dm_errs,\
                            px_par_ids, px_mus, px_errs,\
-                           global_common):
+                           global_common): #par_names, param_rejections):
     """jittable helper for calculating the log prior"""
     log_prior = global_common
-
     #loop through uniform parameters and make sure all are in range
     n = uniform_par_ids.size
     for itrp in range(n):
@@ -272,6 +306,12 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         par_id = uniform_par_ids[itrp]
         value = x0[par_id]
         if low>value or value>high:
+            # print('low value: ', low)
+            # print('high value: ', high)
+            # print('Input value: ', value)
+            # print('Parameter index: ', par_id)
+            # print('Parameter: ', par_names[itrp])
+            #
             log_prior = -np.inf
 
     #loop through linear exponential parameters
@@ -283,6 +323,7 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         value = x0[par_id]
         if low>value or value>high:
             log_prior = -np.inf #from enterprise
+            #param_rejections[par_id] += 1
         else:
             log_prior += value*np.log(10)#from enterprise
 
@@ -320,7 +361,7 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
 
         log_prior += np.log(1/(np.sqrt(2*np.pi)*pi_err*value**2)*np.exp(-(pi-value**(-1))**2/(2*pi_err**2)))
 
-    return log_prior
+    return log_prior#, param_rejections
 
 def get_lnprior(x0,FPI):
     """wrapper to get lnprior from jitted helper"""
@@ -431,7 +472,7 @@ def get_sample_full(n_par,FPI):
            ('global_common',nb.float64)])
 class FastPriorInfo:
     """simple jitclass to store the various elements of fast prior calculation in a way that can be accessed quickly from a numba environment"""
-    def __init__(self, uniform_par_ids, uniform_lows, uniform_highs, lin_exp_par_ids, lin_exp_lows, lin_exp_highs, normal_par_ids, normal_mus, normal_sigs, dm_par_ids, dm_dists, dm_errs, px_par_ids, px_mus, px_errs, cut_par_ids, cut_lows, cut_highs, cw_ext_par_ids, cw_ext_lows, cw_ext_highs, global_common):
+    def __init__(self, uniform_par_ids, uniform_lows, uniform_highs, lin_exp_par_ids, lin_exp_lows, lin_exp_highs, normal_par_ids, normal_mus, normal_sigs, dm_par_ids, dm_dists, dm_errs, px_par_ids, px_mus, px_errs, cut_par_ids, cut_lows, cut_highs, global_common):
         self.uniform_par_ids = uniform_par_ids
         self.uniform_lows = uniform_lows
         self.uniform_highs = uniform_highs
@@ -450,20 +491,16 @@ class FastPriorInfo:
         self.cut_par_ids = cut_par_ids
         self.cut_lows = cut_lows
         self.cut_highs = cut_highs
-        self.cw_ext_par_ids = cw_ext_par_ids
-        self.cw_ext_lows = cw_ext_lows
-        self.cw_ext_highs = cw_ext_highs
         self.global_common = global_common
 
-def get_FastPriorInfo(pta,psrs,par_names_cw_ext):
+def get_FastPriorInfo(pta,psrs):
     """get FastPriorInfo object from pta"""
-    fp_loc = FastPrior(pta,psrs,par_names_cw_ext)
+    fp_loc = FastPrior(pta,psrs)
     FPI = FastPriorInfo(fp_loc.uniform_par_ids, fp_loc.uniform_lows, fp_loc.uniform_highs,\
                         fp_loc.lin_exp_par_ids, fp_loc.lin_exp_lows, fp_loc.lin_exp_highs,\
                         fp_loc.normal_par_ids, fp_loc.normal_mus, fp_loc.normal_sigs,\
                         fp_loc.dm_par_ids, fp_loc.dm_dists, fp_loc.dm_errs,\
                         fp_loc.px_par_ids, fp_loc.px_mus, fp_loc.px_errs,\
                         fp_loc.cut_par_ids,fp_loc.cut_lows,fp_loc.cut_highs,\
-                        fp_loc.cw_ext_par_ids,fp_loc.cw_ext_lows,fp_loc.cw_ext_highs,\
                         fp_loc.global_common)
     return FPI
