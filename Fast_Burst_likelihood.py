@@ -82,6 +82,11 @@ class QuickBurst:
         #holds parameters parsed from current run
         self.wavelet_prm = np.zeros((self.Nwavelet, 10))# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
         self.glitch_prm = np.zeros((self.Nglitch, 6))# in order A, phi0, f0, tau, t0, glitch_idx
+        #parse the pulsar indexes from parameters
+        self.glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
+        for el in range(len(self.glitch_prm[:,3])):
+            self.glitch_pulsars[el] = round(self.glitch_prm[el,3])
+        self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
         #holds previous updated shape params
         self.wavelet_saved = np.zeros((self.Nwavelet, 10))# these should only be saved over if a step is accepeted
         self.glitch_saved = np.zeros((self.Nglitch, 6))# these should only be saved over if a step is accepeted
@@ -279,11 +284,12 @@ class QuickBurst:
         #print('dif_flag: ', dif_flag)
 
         #parse the pulsar indexes from parameters
-        glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
+        self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
+        self.glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
         for el in range(len(self.glitch_prm[:,3])):
-            glitch_pulsars[el] = round(self.glitch_prm[el,3])
+            self.glitch_pulsars[el] = round(self.glitch_prm[el,3])
         #calculate the amplitudes of noise transients and wavelets
-        sigma = self.get_sigmas(glitch_pulsars)
+        sigma = self.get_sigmas(self.glitch_pulsars)
         #if we have new shape parameters, find the NN and MM matrixies from filter functions
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
@@ -294,7 +300,7 @@ class QuickBurst:
             #print('run mn')
             #self.NN_previous = np.copy(self.NN)
             #self.MMs_previous = np.copy(self.MMs)
-            self.get_M_N(glitch_pulsars, dif_flag)
+            self.get_M_N(self.glitch_pulsars, dif_flag)
 
         #update intrinsic likelihood terms when updating RN
         if self.wn_vary:
@@ -309,7 +315,7 @@ class QuickBurst:
         else:
             resres_logdet = self.resres_logdet
         #calls jitted function that compiles all likelihood contributions
-        temp_like = liklihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        temp_like = liklihood_helper(sigma, self.glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
         if self.no_step:
             self.save_values(accept_new_step=False)
         return temp_like
@@ -335,6 +341,7 @@ class QuickBurst:
             self.NN = np.copy(self.NN_previous)
             self.MMs = np.copy(self.MMs_previous)
             self.invCholSigmaTN = np.copy(self.invCholSigmaTN_previous)
+            self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
             #print(self.params)
 
     #####
@@ -551,26 +558,60 @@ def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglit
     return LogL
 
 
-# @njit(fastmath=True,parallel=False)
-# class FastBurst_info:
-#     def __init__(self,params, pta,Npsr,tref,Nglitch, Nwavelet, glitch_indx, wavelet_indx):
-#         #loading in parameters for the class to hold onto
-#         self.params = params
-#         self.saved_params = params
-#     def load_parameters(self,params):
-#         #recieve new parameters from regular burst
-#         self.params = params
-#     def save_params(self, params, accept = False):
-#         #save parameters if step is accepted to give back to regular burst
-#         self.saved_params = params
-#         QuickBurst.save_values(self.saved_params)
-#         Quickburst.validate_values()
-#
-#         #after saving params, validate params here is same as current params in main likelihood class
-#
-#     def jit_likelihood(self, x0):
-#         #fast calculation of the lnlikelihood
-#         temp_sigma = get_sigmas(glitch_pulsars)
-#         temp_like = likelihood_helper(sigma, glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
-#
-#         return temp_like
+@jitclass([('Npsr',nb.types.int64),('pos',nb.types.float64[:,::1]),('resres_logdet',nb.types.float64),('Nglitch',nb.types.int64),('Nwavelet',nb.types.int64),
+            ('wavelet_prm',nb.types.float64[:,::1]),('glitch_prm',nb.types.float64[:,::1]),('MMs',nb.types.float64[:,:,::1]),('NN',nb.types.float64[:,::1]),('prior_recovery',nb.boolean),
+            ('glitch_indx',nb.types.float64[:,::1]),('wavelet_indx',nb.types.float64[:,::1]),('glitch_pulsars',nb.types.float64[::1])])#nb.types.ListType(nb.types.int64[::1])
+class QuickBurst_info:
+    def __init__(self, Npsr, pos, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, prior_recovery, glitch_indx, wavelet_indx, glitch_pulsars):
+        #loading in parameters for the class to hold onto
+        self.Npsr = Npsr
+        self.pos = pos
+        self.resres_logdet = resres_logdet
+        #max number of glitches and signals that can be handeled
+        self.Nglitch = Nglitch
+        self.Nwavelet = Nwavelet
+        #holds parameters parsed from current run
+        self.wavelet_prm = wavelet_prm# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
+        self.glitch_prm = glitch_prm# in order A, phi0, f0, tau, t0, glitch_idx
+
+        self.wavelet_indx = wavelet_indx
+        self.glitch_indx = glitch_indx
+
+        self.MMs = MMs
+        self.NN = NN
+
+        self.glitch_pulsars = glitch_pulsars
+
+        self.prior_recovery=prior_recovery
+
+    def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, glitch_pulsars):
+        #loading in parameters for the class to hold onto
+
+        self.resres_logdet = resres_logdet
+        #max number of glitches and signals that can be handeled
+        self.Nglitch = Nglitch
+        self.Nwavelet = Nwavelet
+        #holds parameters parsed from current run
+        self.wavelet_prm = wavelet_prm# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
+        self.glitch_prm = glitch_prm# in order A, phi0, f0, tau, t0, glitch_idx
+
+        self.MMs = MMs
+        self.NN = NN
+
+
+        self.glitch_pulsars = glitch_pulsars
+
+    # def save_params(self, params, accept = False):
+    #     #save parameters if step is accepted to give back to regular burst
+    #     self.saved_params = params
+    #     QuickBurst.save_values(self.saved_params)
+    #     Quickburst.validate_values()
+
+        #after saving params, validate params here is same as current params in main likelihood class
+
+    def get_lnlikelihood(self, x0):
+        self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
+        #fast calculation of the lnlikelihood
+        temp_sigma = get_sigmas_helper(self.pos, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
+        temp_like = liklihood_helper(temp_sigma, self.glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        return temp_like
