@@ -610,6 +610,8 @@ class QuickBurst_info:
         #after saving params, validate params here is same as current params in main likelihood class
 
     def get_lnlikelihood(self, x0):
+        if self.prior_recovery:
+            return 1
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
         #fast calculation of the lnlikelihood
         temp_sigma = get_sigmas_helper(self.pos, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)

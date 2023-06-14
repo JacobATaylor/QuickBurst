@@ -12,6 +12,9 @@ import h5py
 
 import time
 
+from numba import njit,prange
+from numba.experimental import jitclass
+
 import enterprise
 import enterprise.signals.parameter as parameter
 from enterprise.signals import signal_base
@@ -56,9 +59,11 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
     N = N_slow*n_fast_to_slow
     n_status_update = n_status_update*n_fast_to_slow
     n_fish_update = n_fish_update*n_fast_to_slow
-    print(save_every_n)
     save_every_n = save_every_n*n_fast_to_slow
-    print(save_every_n)
+
+    print('Saving every {} samples '.format(save_every_n), '\n')
+    print('Ending total saved samples: {}'.format(int(N/thin)), '\n')
+
     #If no wn or rn variance, shouldn't do any noise jumps
     if not vary_white_noise:
         if not vary_per_psr_rn:
@@ -342,16 +347,17 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
     #and one for white noise parameters, which we will also keep updating
     eig_per_psr = np.broadcast_to(np.eye(num_per_psr_params)*0.1, (n_chain, num_per_psr_params, num_per_psr_params) ).copy()
     #calculate wn eigenvectors
-    if prior_recovery == False:
-        for j in range(n_chain):
-            n_wavelet = get_n_wavelet(samples, j, 0)
-            n_glitch = get_n_glitch(samples, j, 0)
-            #print('Before first per psr fisher eigenvectors (noise terms)')
-            #QB_logl[j].validate_values(samples[j, 0, 2:], vary_white_noise = vary_white_noise, vary_red_noise = False)
-            per_psr_eigvec = get_fisher_eigenvectors(strip_samples(samples, j, 0, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,0], n_sources=len(pulsars), dim=len(per_puls_indx[1]), array_index=per_puls_indx, vary_white_noise = vary_white_noise, vary_psr_red_noise = vary_per_psr_rn)
-            #print('After first per psr fisher eigenvectors (noise terms)')
-            #QB_logl[j].validate_values(samples[j, 0, 2:], vary_white_noise = vary_white_noise, vary_red_noise = False)
-            eig_per_psr[j,:,:] = per_psr_eigvec[0,:,:]
+    # if prior_recovery == False:
+    #     if vary_per_psr_rn or vary_white_noise:
+    #         for j in range(n_chain):
+    #             n_wavelet = get_n_wavelet(samples, j, 0)
+    #             n_glitch = get_n_glitch(samples, j, 0)
+    #             #print('Before first per psr fisher eigenvectors (noise terms)')
+    #             #QB_logl[j].validate_values(samples[j, 0, 2:], vary_white_noise = vary_white_noise, vary_red_noise = False)
+    #             per_psr_eigvec = get_fisher_eigenvectors(strip_samples(samples, j, 0, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,0], n_sources=len(pulsars), dim=len(per_puls_indx[1]), array_index=per_puls_indx, vary_white_noise = vary_white_noise, vary_psr_red_noise = vary_per_psr_rn)
+    #             #print('After first per psr fisher eigenvectors (noise terms)')
+    #             #QB_logl[j].validate_values(samples[j, 0, 2:], vary_white_noise = vary_white_noise, vary_red_noise = False)
+    #             eig_per_psr[j,:,:] = per_psr_eigvec[0,:,:]
 
     #read in tau_scan data if we will need it
     if tau_scan_proposal_weight+RJ_weight>0:
@@ -766,8 +772,12 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
             #print("-"*50)
         else:
             #For fast jumps, can't have wavelet_indx[i, 3, 8, 9] or glitch_indx[i, 0, 3, 4, 5] Otherwise M and N gets recalculated
-            fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, ent_lnlikelihood, ent_lnlike_test, fast_declines_prior)
+            fast_jump(n_chain, max_n_wavelet, max_n_glitch, QB_FPI, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, ent_lnlikelihood, ent_lnlike_test, fast_declines_prior)
             #fast step goes here
+            if ent_lnlike_test:
+                for jj in range(n_chain):
+                    temp_entlike = pta.get_lnlikelihood(samples[jj,i%save_every_n+1,2:])
+                    ent_lnlikelihood[jj, i%save_every_n+1] = temp_entlike
 
     acc_fraction = a_yes/(a_no+a_yes)
 
@@ -1336,25 +1346,20 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
 #Fast MCMC JUMP ROUTINE (jumping in projection PARAMETERS)
 #
 ################################################################################
-def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_Info, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, ent_lnlikelihood, ent_lnlike_test, fast_declines_prior):
+@njit(fastmath=True,parallel=False)
+def fast_jump(n_chain, max_n_wavelet, max_n_glitch, FPI, QB_Info, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood, ent_lnlikelihood, ent_lnlike_test, fast_declines_prior):
     #print("fast_jump")
     for j in range(n_chain):
         #before_t = time.time()
-        #print('j1: ',j)
-        n_wavelet = get_n_wavelet(samples, j, i)
-        #print('j2: ',j)
-        n_glitch = get_n_glitch(samples, j, i)
-        #print('j3: ',j)
-        #if j==0:
-        #    print(n_wavelet)
-        #    print(n_glitch)
+        n_wavelet = samples[j,i,0]
+        n_glitch = samples[j,i,1]
 
-        samples_current = strip_samples(samples, j, i, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
+        samples_current = samples[j,i,2:] #strip_samples(samples, j, i, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
 
         #decide if moving in wavelet parameters, glitch parameters, or GWB/RN parameters
         #case #1: we can vary any of them
         if n_wavelet!=0 and n_glitch!=0:
-            vary_decide = np.random.uniform()
+            vary_decide = np.random.random()
             if vary_decide <= 0.5:
                 what_to_vary = 'GLITCH'
             else:
@@ -1473,7 +1478,7 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_Info, samples, 
 
         acc_ratio = np.exp(log_acc_ratio)
         #if j==0: print(acc_ratio)
-        if np.random.uniform()<=acc_ratio:
+        if np.random.random()<=acc_ratio:
             #print('Accepted fast step')
             #if j==0: print("ohh jeez")
             samples[j,i+1,0] = n_wavelet
@@ -1486,9 +1491,9 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_Info, samples, 
             #a_yes[7,j]+=1
             a_yes[6,j]+=1
             log_likelihood[j,i+1] = log_L
-            if ent_lnlike_test:
-                temp_entlike = pta.get_lnlikelihood(new_point)
-                ent_lnlikelihood[j, i+1] = temp_entlike
+            # if ent_lnlike_test:
+            #     temp_entlike = pta.get_lnlikelihood(new_point)
+            #     ent_lnlikelihood[j, i+1] = temp_entlike
                 #print("accept step dif: ",log_L-temp_entlike)
 
             #print("accept step")
