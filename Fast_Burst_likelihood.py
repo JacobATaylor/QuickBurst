@@ -26,7 +26,7 @@ class QuickBurst:
     #####
     #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
     #####
-    def __init__(self,pta,psrs,params,Npsr,tref,Nglitch, Nwavelet, rn_vary, wn_vary,  prior_recovery=False):
+    def __init__(self, pta, psrs, params, Npsr, tref, Nglitch, Nwavelet, Nglitch_max, Nwavelet_max, rn_vary, wn_vary,  prior_recovery=False):
 
         #model parameters that shouldn't change for a run
         self.pta = pta
@@ -34,17 +34,17 @@ class QuickBurst:
         self.Npsr = Npsr
         self.params = params
         #important matrixies
-        self.Nvecs = List(self.pta.get_ndiag(self.params))
+        self.Nvecs = list(self.pta.get_ndiag(self.params))
         self.TNTs = self.pta.get_TNT(self.params)
         self.Ts = self.pta.get_basis()
         #save values that may need to be recovered when doing MCMC
         self.params_previous = params
-        self.Nvecs_previous = List(self.pta.get_ndiag(self.params))
+        self.Nvecs_previous = list(self.pta.get_ndiag(self.params))
         self.TNTs_previous = self.pta.get_TNT(self.params)
 
         #pulsar information
-        self.toas = List([psr.toas - tref for psr in psrs])
-        self.residuals = List([psr.residuals for psr in psrs])
+        self.toas = list([psr.toas - tref for psr in psrs])
+        self.residuals = list([psr.residuals for psr in psrs])
         self.pos = np.zeros((self.Npsr,3))
         for i in range(self.Npsr):
             self.pos[i] = self.psrs[i].pos
@@ -79,30 +79,33 @@ class QuickBurst:
         #max number of glitches and signals that can be handeled
         self.Nglitch = Nglitch
         self.Nwavelet = Nwavelet
+        self.Nglitch_previous = Nglitch
+        self.Nwavelet_previous = Nwavelet
         #holds parameters parsed from current run
-        self.wavelet_prm = np.zeros((self.Nwavelet, 10))# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
-        self.glitch_prm = np.zeros((self.Nglitch, 6))# in order A, phi0, f0, tau, t0, glitch_idx
+        self.wavelet_prm = np.zeros((Nwavelet_max, 10))# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
+        self.glitch_prm = np.zeros((Nglitch_max, 6))# in order A, phi0, f0, tau, t0, glitch_idx
         #parse the pulsar indexes from parameters
-        self.glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
-        for el in range(len(self.glitch_prm[:,3])):
+        #these are set to -1 by default because 0 would make us recalculate the first pulasr every time even if there is now glitch present
+        self.glitch_pulsars = -1*np.ones((len(self.glitch_prm[:,3]))) #np.zeros((len(self.glitch_prm[:,3])))
+        for el in range(Nglitch):
             self.glitch_pulsars[el] = round(self.glitch_prm[el,3])
         self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
         #holds previous updated shape params
-        self.wavelet_saved = np.zeros((self.Nwavelet, 10))# these should only be saved over if a step is accepeted
-        self.glitch_saved = np.zeros((self.Nglitch, 6))# these should only be saved over if a step is accepeted
+        self.wavelet_saved = np.zeros((Nwavelet_max, 10))# these should only be saved over if a step is accepeted
+        self.glitch_saved = np.zeros((Nglitch_max, 6))# these should only be saved over if a step is accepeted
         #max possible size of NN and MMs
-        self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
-        self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
+        self.MMs = np.zeros((self.Npsr,2*Nwavelet_max + 2*Nglitch_max,2*Nwavelet_max + 2*Nglitch_max))
+        self.NN = np.zeros((self.Npsr,2*Nwavelet_max + 2*Nglitch_max))
         #most recent accepeted NN and MMs
-        self.MMs_previous = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
-        self.NN_previous = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
+        self.MMs_previous = np.zeros((self.Npsr,2*Nwavelet_max + 2*Nglitch_max,2*Nwavelet_max + 2*Nglitch_max))
+        self.NN_previous = np.zeros((self.Npsr,2*Nwavelet_max + 2*Nglitch_max))
         #space to story current shape parameters to decided it we need to update NN and MM
-        self.Saved_Shape = np.zeros((3*self.Nwavelet + 3*self.Nglitch))
+        self.Saved_Shape = np.zeros((3*Nwavelet_max + 3*Nglitch_max))
         self.key_list = list(self.params)#makes a list of the keys in the params Dictionary
         #self.key_list = List(key_list)#ussing the numba method of typed lists to make something we can easily use in jit
-        self.glitch_indx = np.zeros((self.Nglitch,6))
-        self.wavelet_indx = np.zeros((self.Nwavelet,10))
-        for i in range(self.Nglitch):
+        self.glitch_indx = np.zeros((Nglitch_max,6))
+        self.wavelet_indx = np.zeros((Nwavelet_max,10))
+        for i in range(Nglitch_max):
             self.glitch_indx[i,0] = self.key_list.index('Glitch_'+str(i)+'_log10_f0')
             self.glitch_indx[i,1] = self.key_list.index('Glitch_'+str(i)+'_log10_h')
             self.glitch_indx[i,2] = self.key_list.index('Glitch_'+str(i)+'_phase0')
@@ -111,23 +114,26 @@ class QuickBurst:
             self.glitch_indx[i,5] = self.key_list.index('Glitch_'+str(i)+'_tau')
 
         #wavelet models
-        for j in range(self.Nwavelet):
+        for j in range(Nwavelet_max):
             self.wavelet_indx[j,0] = self.key_list.index('wavelet_'+str(j)+'_log10_f0')
             self.wavelet_indx[j,1] = self.key_list.index('wavelet_'+str(j)+'_cos_gwtheta')
             self.wavelet_indx[j,2] = self.key_list.index('wavelet_'+str(j)+'_gwphi')
             self.wavelet_indx[j,3] = self.key_list.index('wavelet_'+str(j)+'_gw_psi')
-            self.wavelet_indx[j,4] = self.key_list.index('wavelet_'+str(j)+'_phase0')
-            self.wavelet_indx[j,5] = self.key_list.index('wavelet_'+str(j)+'_phase0_cross')
-            self.wavelet_indx[j,6] = self.key_list.index('wavelet_'+str(j)+'_tau')
-            self.wavelet_indx[j,7] = self.key_list.index('wavelet_'+str(j)+'_t0')
-            self.wavelet_indx[j,8] = self.key_list.index('wavelet_'+str(j)+'_log10_h')
-            self.wavelet_indx[j,9] = self.key_list.index('wavelet_'+str(j)+'_log10_h_cross')
+            self.wavelet_indx[j,4] = self.key_list.index('wavelet_'+str(j)+'_log10_h')
+            self.wavelet_indx[j,5] = self.key_list.index('wavelet_'+str(j)+'_log10_h_cross')
+            self.wavelet_indx[j,6] = self.key_list.index('wavelet_'+str(j)+'_phase0')
+            self.wavelet_indx[j,7] = self.key_list.index('wavelet_'+str(j)+'_phase0_cross')
+            self.wavelet_indx[j,8] = self.key_list.index('wavelet_'+str(j)+'_t0')
+            self.wavelet_indx[j,9] = self.key_list.index('wavelet_'+str(j)+'_tau')
+
+        self.sigmas = np.zeros((self.Npsr, Nwavelet_max + Nglitch_max, 2))
+        self.sigmas_previous = np.zeros((self.Npsr, Nwavelet_max + Nglitch_max, 2))
 
 
     #####
     #generates the MM and NN matrixies from filter functions
     #####
-    def get_M_N(self, glitch_pulsars, dif_flag):
+    def get_M_N(self, glitch_pulsars, glitch_pulsars_previous, dif_flag):
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
         if self.rn_vary or self.wn_vary:
@@ -165,6 +171,9 @@ class QuickBurst:
                 invCholSigmaTNfilter[s,1] = invCholSigmaTN@Filt_sin[s]
             #second half are glitches
             for j in range(self.Nglitch):
+                #print('glitch index: ', j)
+                #print('shape on glitch_prm: ', np.shape(self.glitch_prm))
+                #print('self.glitch_prm: ', self.glitch_prm[j,3])
                 #if dif_flag[j + self.Nwavelet] == 1:
                 if (ii-0.5 <= self.glitch_prm[j,3] <= ii+0.5): #only populate filter functions for pulsar with glitch in it
                     Filt_cos[j + self.Nwavelet] = np.exp(-1*((self.toas[ii] - self.glitch_prm[j,4])/self.glitch_prm[j,5])**2)*np.cos(2*np.pi*self.glitch_prm[j,0]*(self.toas[ii] - self.glitch_prm[j,4])) #see PDF for derivation
@@ -175,7 +184,7 @@ class QuickBurst:
             invCholSigmaTNres = invCholSigmaTN@self.residuals[ii]
 
             #update the full N and M when we are looking at a pulsar that contains some glitches (due to cross terms)
-            if ii in glitch_pulsars:
+            if ii in glitch_pulsars or ii in glitch_pulsars_previous:
                 #populate MM,NN with wavelets and glitches (including cross terms)
                 for k in range(self.Nwavelet + self.Nglitch):
                     if dif_flag[k] == 1: #check which terms have actualy changed before changing M and N
@@ -205,19 +214,156 @@ class QuickBurst:
     #Function that may be useful to help modify the M and N matrices without recalculating them
     #Specifically for cases of changing/adding glitches and wavelets
     ######
-    # def M_N_helper(self, remove_index = 0, wavelet_change = False, glitch_change = False):
-    #
-    #     if wavelet_change:
-    #         #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
-    #     if glitch_change:
-    #         #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
+    def M_N_RJ_helper(self, x0, n_wavelet, n_glitch, remove_index = 0, adding = False, wavelet_change = False, glitch_change = False):
+
+        self.Nglitch_previous = self.Nglitch
+        self.Nwavelet_previous = self.Nwavelet
+
+        self.rn_vary = False
+        self.wn_vary = False
+        #Need to resize glitch_prm, wavelet_prm here when adding or removing glitch or wavelet. Which means also updating glitch_indx and wavelet_indx
+        #in this edge case.
+        self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, n_glitch, n_wavelet)
+        #Save previous M and N states
+        self.NN_previous = np.copy(self.NN)
+        self.MMs_previous = np.copy(self.MMs)
+        self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+
+        #Need to make sure we update inverse cholesky matrix when in the edge case of 0 wavelets and 0 glitches
+        #Cholesky matrix changes when we add wavelets/glitches, but still doesn't trigger when varying noise in this case.
+        if self.Nwavelet + self.Nglitch == 0:
+            d0 = {}
+            for ii in range(len(x0)):
+                d0[self.pta.param_names[ii]] = x0[ii]
+            self.params_previous = np.copy(self.params)
+            self.params = d0
+            phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+            self.invCholSigmaTN = []
+            for ii in range(self.Npsr):
+                Ndiag = 1/self.Nvecs[ii]
+                #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+                TNT = self.TNTs[ii]
+                T = self.Ts[ii]
+                phiinv = phiinvs[ii]
+                Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+                chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+                invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+                self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+
+        self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
+        if glitch_change:
+            self.glitch_pulsars = -1*np.ones((len(self.glitch_prm[:,3])))
+            for el in range(n_glitch):#len(self.glitch_prm[:,3])):
+                self.glitch_pulsars[el] = round(self.glitch_prm[el,3])
+
+        #Set to new numbers of wavelets and glitches. Gets reset in save_values to previous values if step is rejected.
+        self.Nglitch = n_glitch
+        self.Nwavelet = n_wavelet
+
+        #Set dif_flag to zeros initially and populate if things change.
+        dif_flag = np.zeros(((self.Nwavelet + self.Nglitch)))
+
+        #print('before self.NN: ', self.NN)
+        if wavelet_change:
+            if not adding:
+                #Removing wavelet, delete row/column and add back to the end.
+                for ii in range(self.Npsr):
+                    #Copying both sin/cos terms in NN matrix
+                    wavelet_copy_NN = np.copy(self.NN[ii, 2*remove_index:2*remove_index+2])*0
+                    #Deleting relevant sin/cos filter function terms from NN
+                    self.NN[ii, :-2] = np.delete(self.NN[ii], (2*remove_index,2*remove_index+1))
+                    #Append terms to end of NN matrix
+                    self.NN[ii, -2:] = wavelet_copy_NN
+                    #copying both sin/cos terms (and cross terms) for MM matrix
+                    #Need addition of 2 to get both terms, indexing w/ +2 doesn't include last term
+                    wavelet_copy_MM_1 = np.copy(self.MMs[ii, 2*remove_index:2*remove_index+2,:])*0
+                    #Deleting relevant sin/cos filter function terms from MM (along with cross terms for both row)
+                    self.MMs[ii, :-2, :] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=0)
+                    #Append row to end
+                    self.MMs[ii, -2:] = wavelet_copy_MM_1
+                    wavelet_copy_MM_2 = np.copy(self.MMs[ii, :, 2*remove_index:2*remove_index+2])*0
+                    #Deleting relevant sin/cos filter function terms from MM (along with cross terms for both col)
+                    self.MMs[ii, :, :-2] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=1)
+                    #Append col to end
+                    self.MMs[ii, :, -2:] = wavelet_copy_MM_2
+
+                #print('mid self.NN: ', self.NN)
+
+            elif adding:
+                #in M and N matrices, shift over all glitch terms in matrices, then dif flag index is only for new wavelet.
+                #Adding wavelet
+                for ii in range(self.Npsr):
+                    #Copying all glitch sin/cos terms in NN matrix
+                    # #This print should return an error!
+                    # print('self.NN shape: ', self.NN.size)
+                    # print('Nwavelet_previous shape: ', self.Nwavelet_previous)
+                    # print('Nglitch_previous: ', self.Nglitch_previous)
+                    # print('wavelet_copy_NN: ', wavelet_copy_NN)
+                    wavelet_copy_NN = np.copy(self.NN[ii, 2*self.Nwavelet_previous:2*(self.Nglitch_previous+self.Nwavelet_previous)])
+                    #Append terms shifted by one set of sin and cos terms
+                    self.NN[ii, 2*self.Nwavelet_previous+2:2*(self.Nglitch_previous+self.Nwavelet_previous)+2] = wavelet_copy_NN
+                    #copying both sin/cos terms (and cross terms) for MM matrix
+                    #Need addition of 2 to get both terms
+                    wavelet_copy_MM_1 = np.copy(self.MMs[ii, 2*self.Nwavelet_previous:2*(self.Nglitch_previous+self.Nwavelet_previous),:])
+                    #shift row over by 2
+                    self.MMs[ii, 2*self.Nwavelet_previous+2:2*(self.Nglitch_previous+self.Nwavelet_previous)+2, :] = wavelet_copy_MM_1
+                    wavelet_copy_MM_2 = np.copy(self.MMs[ii, :, 2*self.Nwavelet_previous:2*(self.Nglitch_previous+self.Nwavelet_previous)])
+                    #shift col over by 2
+                    self.MMs[ii, :, 2*self.Nwavelet_previous+2:2*(self.Nglitch_previous+self.Nwavelet_previous)+2] = wavelet_copy_MM_2
+
+                    #print('Wavelet col terms moved: ', self.MMs[ii, :, 2*self.Nwavelet_previous+2:2*(self.Nglitch_previous+self.Nwavelet_previous)+2])
+                dif_flag[self.Nwavelet_previous] = 1
+                #print('mid self.NN: ', self.NN)
+                #print('Mid self.MMs: ', self.MMs)
+                #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
+                self.get_M_N(self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
+                #print('after self.NN: ', self.NN)
+                #print('After self.MMs: ', self.MMs)
+        elif glitch_change:
+            remove_index += n_wavelet
+            if not adding:
+                #Removing wavelet, delete row/column and add back to the end.
+                for ii in range(self.Npsr):
+                    #Copying both sin/cos terms in NN matrix
+                    glitch_copy_NN = np.copy(self.NN[ii, 2*remove_index:2*remove_index+2])*0
+                    #Deleting relevant sin/cos filter function terms from NN
+                    self.NN[ii, :-2] = np.delete(self.NN[ii], (2*remove_index,2*remove_index+1))
+                    #Append terms to end of NN matrix
+                    self.NN[ii, -2:] = glitch_copy_NN
+
+                    #copying both sin/cos terms (and cross terms) for MM matrix
+                    #Need addition of 2 to get both terms, indexing w/ +2 doesn't include last term
+                    glitch_copy_MM_1 = np.copy(self.MMs[ii, 2*remove_index:2*remove_index+2,:])*0
+                    #Deleting relevant sin/cos filter function terms from MM (along with cross terms for both row)
+                    self.MMs[ii, :-2, :] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=0)
+                    #Append row to end
+                    self.MMs[ii, -2:] = glitch_copy_MM_1
+                    glitch_copy_MM_2 = np.copy(self.MMs[ii, :, 2*remove_index:2*remove_index+2])*0
+                    #Deleting relevant sin/cos filter function terms from MM (along with cross terms for both col)
+                    self.MMs[ii, :, :-2] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=1)
+                    #Append col to end
+                    self.MMs[ii, :, -2:] = glitch_copy_MM_2
+            elif adding:
+                #dif_flag[-1] = 1 #need to acount for multiple changes
+                dif_flag[self.Nwavelet_previous+self.Nglitch_previous] = 1 #should index to the value after the currently active parts
+                self.get_M_N(self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
+            #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
+        #fast calculation of the lnlikelihood
+        if self.prior_recovery:
+            return 1.0
+
+        self.sigmas_previous = np.copy(self.sigmas)
+        self.sigmas = get_sigmas_helper(self.pos, self.sigmas, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
+
+        temp_like = liklihood_helper(self.sigmas, self.glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        return temp_like
 
 
     ######
     #calculates amplitudes for Signals
     ######
     def get_sigmas(self, glitch_pulsars):
-        return get_sigmas_helper(self.pos, glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
+        return get_sigmas_helper(self.pos, self.sigmas, glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
 
     #####
     #calculates lnliklihood for a set of signal parameters
@@ -256,7 +402,7 @@ class QuickBurst:
         if self.wn_vary:
             self.Nvecs_previous = np.copy(self.Nvecs)
             self.TNTs_previous = np.copy(self.TNTs)
-            self.Nvecs = List(self.pta.get_ndiag(self.params))
+            self.Nvecs = list(self.pta.get_ndiag(self.params))
             self.TNTs = self.pta.get_TNT(self.params)
         #parse current parameters using dictionary
         #get_parameters needs to change to account for changing indexes for wavelet/glitch parameters
@@ -285,22 +431,27 @@ class QuickBurst:
 
         #parse the pulsar indexes from parameters
         self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
-        self.glitch_pulsars = np.zeros((len(self.glitch_prm[:,3])))
-        for el in range(len(self.glitch_prm[:,3])):
+        self.glitch_pulsars = -1*np.ones((len(self.glitch_prm[:,3])))
+        for el in range(self.Nglitch):#range(len(self.glitch_prm[:,3])):
             self.glitch_pulsars[el] = round(self.glitch_prm[el,3])
+
         #calculate the amplitudes of noise transients and wavelets
-        sigma = self.get_sigmas(self.glitch_pulsars)
+        self.sigmas_previous = np.copy(self.sigmas)
+        self.sigmas = self.get_sigmas(self.glitch_pulsars)
+
         #if we have new shape parameters, find the NN and MM matrixies from filter functions
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
         self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+
+        #If varying any noise, recalculate all of M and N
         if self.rn_vary  or self.wn_vary:
             dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
             #print('run mn')
             #self.NN_previous = np.copy(self.NN)
             #self.MMs_previous = np.copy(self.MMs)
-            self.get_M_N(self.glitch_pulsars, dif_flag)
+            self.get_M_N(self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag) #include self.glitch_pulsars_previous so that if it changes both new and old are re-calculated
 
         #update intrinsic likelihood terms when updating RN
         if self.wn_vary:
@@ -315,15 +466,15 @@ class QuickBurst:
         else:
             resres_logdet = self.resres_logdet
         #calls jitted function that compiles all likelihood contributions
-        temp_like = liklihood_helper(sigma, self.glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        temp_like = liklihood_helper(self.sigmas, self.glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
         if self.no_step:
-            self.save_values(accept_new_step=False)
+            self.save_values(accept_new_step=False, vary_white_noise = self.wn_vary, vary_red_noise = self.rn_vary, rj_jump = False)
         return temp_like
 
     #####
     #replaces saved values when deciding on MCMC step
     #####
-    def save_values(self, accept_new_step=False):
+    def save_values(self, accept_new_step=False, vary_white_noise = False, vary_red_noise = False, rj_jump = False):
         #if the test point is being steped to, save it's parameter values to compare against in the future
         if accept_new_step:
             self.wavelet_saved = np.copy(self.wavelet_prm)
@@ -331,17 +482,25 @@ class QuickBurst:
         #if we stay at the original point, re-load all the values from before the step
         else:
             #if statments to check if the "params previous have actually been updated"
-            if self.rn_vary or self.wn_vary:
+            if vary_red_noise or vary_white_noise:
                 self.params = np.copy(self.params_previous)
                 self.resres_logdet = np.copy(self.resres_logdet_previous)
-            if self.wn_vary:
+            if vary_white_noise:
                 self.Nvecs = np.copy(self.Nvecs_previous)
                 self.TNTs = np.copy(self.TNTs_previous)
                 self.logdet = np.copy(self.logdet_previous)
             self.NN = np.copy(self.NN_previous)
             self.MMs = np.copy(self.MMs_previous)
+
+            #7/25/23 - Think we need to reset sigmas during steps that aren't accepted. ~ Jacob
+            self.sigmas = np.copy(self.sigmas_previous)
+
             self.invCholSigmaTN = np.copy(self.invCholSigmaTN_previous)
             self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
+            if rj_jump:
+                #Resave number of glitches and wavelets
+                self.Nglitch = self.Nglitch_previous
+                self.Nwavelet = self.Nwavelet_previous
             #print(self.params)
 
     #####
@@ -364,7 +523,7 @@ class QuickBurst:
                 print('params ok')
 
         if vary_white_noise:
-            Nvecs_test = List(self.pta.get_ndiag(self.params))
+            Nvecs_test = list(self.pta.get_ndiag(self.params))
             TNTs_test = self.pta.get_TNT(self.params)
             #assert Nvecs_test == self.Nvecs
             #assert np.all(TNTs_test == self.TNTs)
@@ -419,6 +578,13 @@ def logdet_Sigma_helper(chol_Sigma):
 @njit(parallel=False,fastmath=True)
 def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglitch, Nwavelet):
     #glitch models
+    #start by re-setting parameters to zeros
+    glitch_prm = np.copy(glitch_prm)*0
+    wavelet_prm = np.copy(wavelet_prm)*0
+    #Need to change this to work when adding glitches/wavelets. If we start from 0, this breaks when adding.
+
+    # self.wavelet_prm = np.zeros((Nwavelet_max, 10))# in order GWtheta, GWphi, Ap, Ac, phi0p, phi0c, pol, f0_w, tau_w, t0_w
+    # self.glitch_prm = np.zeros((Nglitch_max, 6))# in order A, phi0, f0, tau, t0, glitch_idx
     for i in range(Nglitch):
         glitch_prm[i,0] = 10**(x0[int(glitch_indx[i,0])])
         glitch_prm[i,1] = 10**(x0[int(glitch_indx[i,1])])
@@ -432,12 +598,12 @@ def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglit
         wavelet_prm[j,1] = np.arccos(x0[int(wavelet_indx[j,1])])
         wavelet_prm[j,2] = x0[int(wavelet_indx[j,2])]
         wavelet_prm[j,3] = x0[int(wavelet_indx[j,3])]
-        wavelet_prm[j,4] = x0[int(wavelet_indx[j,4])]
-        wavelet_prm[j,5] = x0[int(wavelet_indx[j,5])]
-        wavelet_prm[j,6] = (365.25*24*3600)*x0[int(wavelet_indx[j,6])]
-        wavelet_prm[j,7] = (365.25*24*3600)*x0[int(wavelet_indx[j,7])]
-        wavelet_prm[j,8] = 10**(x0[int(wavelet_indx[j,8])])
-        wavelet_prm[j,9] = 10**(x0[int(wavelet_indx[j,9])])
+        wavelet_prm[j,4] = x0[int(wavelet_indx[j,6])]
+        wavelet_prm[j,5] = x0[int(wavelet_indx[j,7])]
+        wavelet_prm[j,6] = (365.25*24*3600)*x0[int(wavelet_indx[j,9])]
+        wavelet_prm[j,7] = (365.25*24*3600)*x0[int(wavelet_indx[j,8])]
+        wavelet_prm[j,8] = 10**(x0[int(wavelet_indx[j,4])])
+        wavelet_prm[j,9] = 10**(x0[int(wavelet_indx[j,5])])
 
     return glitch_prm, wavelet_prm
 
@@ -483,9 +649,9 @@ def resres_logdet_calc(Npsr, pta, params, TNTs, Ts, Nvecs, residuals):
 #calculates amplitudes for Signals
 ######
 @njit(fastmath=True,parallel=False)
-def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm, glitch_prm):
+def get_sigmas_helper(pos, sigmas, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm, glitch_prm):
     #coefficients for wavelets and glitches
-    sigma = np.zeros((Npsr, Nwavelet + Nglitch, 2))
+    sigma = np.copy(sigmas)*0
 
     #terms used in antenna pattern calculation
     m = np.zeros((Nwavelet, 3))
@@ -510,6 +676,7 @@ def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm,
                 m_pos += m[g,j]*pos[i,j]
                 n_pos += n[g,j]*pos[i,j]
                 cosMu -= omhat[g,j]*pos[i,j]
+                #print('cosMu in sigmas_helper: ', cosMu)
 
             #Calculating the antenna response for the + and x GW modes. There is
             #a different response for each wavelet, so we compute a new antenna pattern for each.
@@ -527,14 +694,15 @@ def get_sigmas_helper(pos, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm,
             #Calculating wavelet signal coefficients
             sigma[i,g,0] = -F_p*wavelet_prm[g,8]*cos_p*cos_0 + F_p*wavelet_prm[g,9]*cos_c*sin_0 - F_c*wavelet_prm[g,8]*cos_p*sin_0 - F_c*wavelet_prm[g,9]*cos_c*cos_0
             sigma[i,g,1] = F_p*wavelet_prm[g,8]*sin_p*cos_0 - F_p*wavelet_prm[g,9]*sin_c*sin_0 + F_c*wavelet_prm[g,8]*sin_p*sin_0 + F_c*wavelet_prm[g,9]*sin_c*cos_0
-        if i in glitch_pulsars:
-            for k in range(Nglitch):
+        #if i in glitch_pulsars:
+        for k in range(Nglitch): #re-ordered so we only fill in the relevent glitch, to stop crossover with backfilled N,M
+            if glitch_pulsars[k] == i:
                 sigma[i,Nwavelet + k,0] = glitch_prm[k,1]*np.cos(glitch_prm[k,2])
                 sigma[i,Nwavelet + k,1] = -glitch_prm[k,1]*np.sin(glitch_prm[k,2])
     return sigma
 
 #####
-#combine all likelihood terms
+#Calculate wavelet and glitch contributions to the likelihood
 #####
 @njit(fastmath=True,parallel=False)
 def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglitch, NN, MMs):
@@ -560,9 +728,9 @@ def liklihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglit
 
 @jitclass([('Npsr',nb.types.int64),('pos',nb.types.float64[:,::1]),('resres_logdet',nb.types.float64),('Nglitch',nb.types.int64),('Nwavelet',nb.types.int64),
             ('wavelet_prm',nb.types.float64[:,::1]),('glitch_prm',nb.types.float64[:,::1]),('MMs',nb.types.float64[:,:,::1]),('NN',nb.types.float64[:,::1]),('prior_recovery',nb.boolean),
-            ('glitch_indx',nb.types.float64[:,::1]),('wavelet_indx',nb.types.float64[:,::1]),('glitch_pulsars',nb.types.float64[::1])])#nb.types.ListType(nb.types.int64[::1])
+            ('glitch_indx',nb.types.float64[:,::1]),('wavelet_indx',nb.types.float64[:,::1]),('glitch_pulsars',nb.types.float64[::1]), ('sigmas', nb.types.float64[:,:,::1])])#nb.types.ListType(nb.types.int64[::1])
 class QuickBurst_info:
-    def __init__(self, Npsr, pos, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, prior_recovery, glitch_indx, wavelet_indx, glitch_pulsars):
+    def __init__(self, Npsr, pos, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, sigmas, MMs, NN, prior_recovery, glitch_indx, wavelet_indx, glitch_pulsars):
         #loading in parameters for the class to hold onto
         self.Npsr = Npsr
         self.pos = pos
@@ -577,6 +745,7 @@ class QuickBurst_info:
         self.wavelet_indx = wavelet_indx
         self.glitch_indx = glitch_indx
 
+        self.sigmas = sigmas
         self.MMs = MMs
         self.NN = NN
 
@@ -614,6 +783,6 @@ class QuickBurst_info:
             return 1
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
         #fast calculation of the lnlikelihood
-        temp_sigma = get_sigmas_helper(self.pos, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
-        temp_like = liklihood_helper(temp_sigma, self.glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+        self.sigmas = get_sigmas_helper(self.pos, self.sigmas, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
+        temp_like = liklihood_helper(self.sigmas, self.glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
         return temp_like

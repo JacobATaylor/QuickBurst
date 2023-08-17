@@ -48,72 +48,82 @@ class FastPrior:
         nm_dist_lows = []
 
         #Wavelet/glitch prior bounds
-        wave_glitch_uf_lows = []
-        wave_glitch_uf_highs = []
-        wave_glitch_le_lows = []
-        wave_glitch_le_highs = []
-        wave_glitch_uniform_pars = []
-        wave_glitch_lin_exp_pars = []
+        wave_uf_lows = []
+        wave_uf_highs = []
+        wave_le_lows = []
+        wave_le_highs = []
+        wave_uniform_pars = []
+        wave_lin_exp_pars = []
 
-
+        #glitch prior bounds
+        glitch_uf_lows = []
+        glitch_uf_highs = []
+        glitch_le_lows = []
+        glitch_le_highs = []
+        glitch_uniform_pars = []
+        glitch_lin_exp_pars = []
         for par in self.pta.params:
             #print(par)
-            #Special treatment for wavelet/glitch priors
-            '''
-            if 'wavelet' or 'glitch' in par:
+            #Special treatment for glitch priors
+            if 'Glitch' in str(par):
                 if "Uniform" in par._typename:
-                    wave_glitch_uniform_pars.append(par.name)
-                    wave_glitch_uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
-                    wave_glitch_uf_highs.append(float(par._typename.split('=')[2][:-1]))
+                    glitch_uniform_pars.append(par.name)
+                    glitch_uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    glitch_uf_highs.append(float(par._typename.split('=')[2][:-1]))
                 elif "LinearExp" in par._typename:
-                    wave_glitch_lin_exp_pars.append(par.name)
-                    wave_glitch_le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
-                    wave_glitch_le_highs.append(float(par._typename.split('=')[2][:-1]))
+                    glitch_lin_exp_pars.append(par.name)
+                    glitch_le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    glitch_le_highs.append(float(par._typename.split('=')[2][:-1]))
+
+            #Special treatment for wavelet priors
+            elif 'wavelet' in str(par):
+                if "Uniform" in par._typename:
+                    wave_uniform_pars.append(par.name)
+                    wave_uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    wave_uf_highs.append(float(par._typename.split('=')[2][:-1]))
+                elif "LinearExp" in par._typename:
+                    wave_lin_exp_pars.append(par.name)
+                    wave_le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    wave_le_highs.append(float(par._typename.split('=')[2][:-1]))
             else:
-                '''
-            if "Uniform" in par._typename:
-                uniform_pars.append(par.name)
-                uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
-                uf_highs.append(float(par._typename.split('=')[2][:-1]))
-            elif "LinearExp" in par._typename:
-                lin_exp_pars.append(par.name)
-                le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
-                le_highs.append(float(par._typename.split('=')[2][:-1]))
-            elif "Normal" in par._typename:
-                normal_pars.append(par.name)
-                nm_mus.append(float(par._typename.split('=')[1].split(',')[0]))
-                nm_sigs.append(float(par._typename.split('=')[2][:-1]))
-                if "_cw0_p_dist" in par.name:
-                    #find the corresponding pulsar distance so we can append it
-                    normal_dist_pars.append(par.name)
-                    for psr in psrs:
-                        if psr.name in par.name:
-                            #this should be the lower cutoff of dist_delta such that dist_mu + dist_sigma*dist_delta=0
-                            nm_dist_lows.append(-psr.pdist[0]/psr.pdist[1])
-                            break
-            elif "DMDist" in par._typename:
-                dm_pars.append(par.name)
-                dm_dists.append(float(par._typename.split('=')[1].split(',')[0]))
-                dm_errs.append(float(par._typename.split('=')[2][:-1]))
-                dm_dist_lows.append(0.0)
-            elif "PXDist" in par._typename:
-                px_pars.append(par.name)
-                px_dist = float(par._typename.split('=')[1].split(',')[0])
-                px_dist_err = float(par._typename.split('=')[2][:-1])
-                px_mus.append(1/px_dist)
-                px_errs.append(px_dist_err/px_dist**2)
-                px_dist_lows.append(0.0)
-
-        self.uniform_par_names = []
-        self.uniform_par_names.append(uniform_pars)
-
-        self.uniform_par_names = np.array(self.uniform_par_names)
+                if "Uniform" in par._typename:
+                    uniform_pars.append(par.name)
+                    uf_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    uf_highs.append(float(par._typename.split('=')[2][:-1]))
+                elif "LinearExp" in par._typename:
+                    lin_exp_pars.append(par.name)
+                    le_lows.append(float(par._typename.split('=')[1].split(',')[0]))
+                    le_highs.append(float(par._typename.split('=')[2][:-1]))
+                elif "Normal" in par._typename:
+                    normal_pars.append(par.name)
+                    nm_mus.append(float(par._typename.split('=')[1].split(',')[0]))
+                    nm_sigs.append(float(par._typename.split('=')[2][:-1]))
+                    if "_cw0_p_dist" in par.name:
+                        #find the corresponding pulsar distance so we can append it
+                        normal_dist_pars.append(par.name)
+                        for psr in psrs:
+                            if psr.name in par.name:
+                                #this should be the lower cutoff of dist_delta such that dist_mu + dist_sigma*dist_delta=0
+                                nm_dist_lows.append(-psr.pdist[0]/psr.pdist[1])
+                                break
+                elif "DMDist" in par._typename:
+                    dm_pars.append(par.name)
+                    dm_dists.append(float(par._typename.split('=')[1].split(',')[0]))
+                    dm_errs.append(float(par._typename.split('=')[2][:-1]))
+                    dm_dist_lows.append(0.0)
+                elif "PXDist" in par._typename:
+                    px_pars.append(par.name)
+                    px_dist = float(par._typename.split('=')[1].split(',')[0])
+                    px_dist_err = float(par._typename.split('=')[2][:-1])
+                    px_mus.append(1/px_dist)
+                    px_errs.append(px_dist_err/px_dist**2)
+                    px_dist_lows.append(0.0)
 
         #special class attributes for wavelet/glitch terms
         #self.wave_glitch_uniform_pars_ids = np.array(self.param_names.index(u_par) for u_par in uniform_pars], dtype='int')
-        print('uniform params: ',uniform_pars)
-        print('uniform lows: ',uf_lows)
-        print('uniform highs: ',uf_highs)
+        print('wavelet le params: ',wave_lin_exp_pars)
+        print('wavelet le lows: ',wave_le_lows)
+        print('wavelet le highs: ',wave_le_highs)
 
 
         self.uniform_lows = np.array(uf_lows)
@@ -131,12 +141,23 @@ class FastPrior:
         self.normal_par_ids = np.array([self.param_names.index(n_par) for n_par in normal_pars], dtype='int')
         self.dm_par_ids = np.array([self.param_names.index(dm_par) for dm_par in dm_pars], dtype='int')
         self.px_par_ids = np.array([self.param_names.index(px_par) for px_par in px_pars], dtype='int')
-        '''
-        self.cw_ext_par_ids = np.array([self.param_names.index(c_par) for c_par in cw_pars], dtype='int')
 
-        self.cw_ext_lows = np.array(cw_ext_lows)
-        self.cw_ext_highs = np.array(cw_ext_highs)
-        '''
+        self.glitch_uf_lows = np.array(glitch_uf_lows)
+        self.glitch_uf_highs = np.array(glitch_uf_highs)
+        self.glitch_le_lows = np.array(glitch_le_lows)
+        self.glitch_le_highs = np.array(glitch_le_highs)
+
+        self.glitch_uf_par_ids = np.array([self.param_names.index(u_par) for u_par in glitch_uniform_pars], dtype = 'int')
+        self.glitch_le_par_ids = np.array([self.param_names.index(le) for le in glitch_lin_exp_pars], dtype = 'int')
+
+        self.wave_uf_lows = np.array(wave_uf_lows)
+        self.wave_uf_highs = np.array(wave_uf_highs)
+        self.wave_le_lows = np.array(wave_le_lows)
+        self.wave_le_highs = np.array(wave_le_highs)
+
+        self.wave_uf_par_ids = np.array([self.param_names.index(u_par) for u_par in wave_uniform_pars], dtype = 'int')
+        self.wave_le_par_ids = np.array([self.param_names.index(le) for le in wave_lin_exp_pars], dtype = 'int')
+
 
         #logic for cutting off normally distributed distances so they don't go below 0
         self.normal_dist_par_ids = np.array([self.param_names.index(n_par) for n_par in normal_dist_pars], dtype='int')
@@ -165,7 +186,7 @@ class FastPrior:
             low = self.lin_exp_lows[itrp]
             high = self.lin_exp_highs[itrp]
             self.global_lin_exp += np.log(np.log(10))-np.log(10 ** high - 10 ** low)
-            #self.global_lin_exp += -np.log(high-low)
+
 
         #normal prior has component independent of value
         self.global_normal = 0.
@@ -188,10 +209,6 @@ class FastPrior:
         #part of the likelihood that is the same independent of the parameter values for all points with finite log prior
         self.global_common = self.global_uniform+self.global_lin_exp+self.global_normal+self.global_dm
 
-        #self.param_rejections = np.array((len(self.pta.params), 1))
-
-        #self.param_rejections = [0]*len(self.param_names)
-        #print('Param rejections: ', self.param_rejections)
     def get_lnprior(self, x0):
         """wrapper to get ln prior"""
         lprior = get_lnprior_helper(x0, self.uniform_par_ids, self.uniform_lows, self.uniform_highs,\
@@ -199,7 +216,7 @@ class FastPrior:
                                       self.normal_par_ids, self.normal_mus, self.normal_sigs,\
                                       self.dm_par_ids, self.dm_dists, self.dm_errs,\
                                       self.px_par_ids, self.px_mus, self.px_errs,\
-                                      self.global_common) #self.uniform_par_names, self.param_rejections)
+                                      self.global_common)
         #self.param_rejections = reject_rates
         return lprior
 
@@ -211,8 +228,6 @@ class FastPrior:
                                       self.dm_par_ids, self.dm_dists, self.dm_errs,\
                                       self.px_par_ids, self.px_mus, self.px_errs)
 
-    # def rejection_rates(self):
-    #     return self.param_rejections
 
 
 @njit()
@@ -289,13 +304,36 @@ def get_sample_helper(idx, uniform_par_ids, uniform_lows, uniform_highs,
         iii = np.argmax(px_par_ids==idx)
         return 1/np.random.normal(px_mus[iii], px_errs[iii])
 
+        #Wavelet/glitch prior bounds
+        wave_uf_lows = []
+        wave_uf_highs = []
+        wave_le_lows = []
+        wave_le_highs = []
+        wave_uniform_pars = []
+        wave_lin_exp_pars = []
+
+        #glitch prior bounds
+        glitch_uf_lows = []
+        glitch_uf_highs = []
+        glitch_le_lows = []
+        glitch_le_highs = []
+        glitch_uniform_pars = []
+        glitch_lin_exp_pars = []
+
 @njit()
 def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
                            lin_exp_par_ids, lin_exp_lows, lin_exp_highs,\
                            normal_par_ids, normal_mus, normal_sigs,\
-                           dm_par_ids, dm_dists, dm_errs,\
-                           px_par_ids, px_mus, px_errs,\
-                           global_common): #par_names, param_rejections):
+                           dm_par_ids, dm_dists, dm_errs,px_par_ids, \
+                           px_mus, px_errs, global_common, \
+                           glitch_uf_par_ids, glitch_uf_lows, \
+                           glitch_uf_highs, glitch_le_par_ids, \
+                           glitch_le_lows, glitch_le_highs,\
+                           wave_uf_par_ids, wave_uf_lows, \
+                           wave_uf_highs, wave_le_par_ids, \
+                           wave_le_lows, wave_le_highs, n_wavelet, \
+                           n_glitch, max_n_wavelet, max_n_glitch):
+
     """jittable helper for calculating the log prior"""
     log_prior = global_common
     #loop through uniform parameters and make sure all are in range
@@ -306,15 +344,104 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         par_id = uniform_par_ids[itrp]
         value = x0[par_id]
         if low>value or value>high:
-            # print('low value: ', low)
-            # print('high value: ', high)
-            # print('Input value: ', value)
-            # print('Parameter index: ', par_id)
-            # print('Parameter: ', par_names[itrp])
-            #
             log_prior = -np.inf
+    #print('log_prior_1: ',log_prior)
 
-    #loop through linear exponential parameters
+    ##############
+    #For checking glitch uniform priors are in prior range
+    g = glitch_uf_par_ids.size
+    for itrp in range(g):
+        low = glitch_uf_lows[itrp]
+        #print('low:',low)
+        high = glitch_uf_highs[itrp]
+        #print('high:',high)
+        par_id = glitch_uf_par_ids[itrp]
+        value = x0[par_id]
+        #print('value:',value)
+        if low>value or value>high:
+            log_prior = -np.inf
+    #print('log_prior_2: ',log_prior)
+    #For checking wavelet uniform priors are in prior range
+    w = wave_uf_par_ids.size
+    for itrp in range(w):
+        low = wave_uf_lows[itrp]
+        high = wave_uf_highs[itrp]
+        par_id = wave_uf_par_ids[itrp]
+        value = x0[par_id]
+        if low>value or value>high:
+            log_prior = -np.inf
+    #print('log_prior_3: ',log_prior)
+    #for uniform prior wavelet/glitch contributions
+    #Calculate global contribution for a single set of uniform glitch params
+    glitch_global_uniform = 0.
+    if max_n_glitch != 0:
+        for itrp in range(int(glitch_uf_lows.size/max_n_glitch)):
+            low = glitch_uf_lows[itrp]
+            high = glitch_uf_highs[itrp]
+            glitch_global_uniform += -np.log(high-low)
+            #Count contribution for all glitches
+        log_prior += glitch_global_uniform*n_glitch
+    #print('log_prior_4: ',log_prior)
+
+    #Calculate global contribution for a single set of uniform wavelet params
+    wave_global_uniform = 0.
+    if max_n_wavelet != 0:
+        for itrp in range(int(wave_uf_lows.size/max_n_wavelet)):
+            low = wave_uf_lows[itrp]
+            high = wave_uf_highs[itrp]
+            wave_global_uniform += -np.log(high-low)
+        #Count contribution for all wavelets
+        log_prior += wave_global_uniform*n_wavelet
+    #print('log_prior_5: ',log_prior)
+
+    #for linear exponential wavelet/glitch prior contributions
+    #Calculate global contribution for all lin-exp glitch params (if any)
+    if max_n_glitch != 0:
+        for itrp in range(int(glitch_le_lows.size/max_n_glitch)*n_glitch):
+            low = glitch_le_lows[itrp]
+            high = glitch_le_highs[itrp]
+            par_id = glitch_le_par_ids[itrp]
+            value = x0[par_id]
+            if low>value or value>high:
+                log_prior = -np.inf #from enterprise
+
+            else:
+                log_prior += value*np.log(10)#from enterprise
+    #print('log_prior_6: ',log_prior)
+
+    #Calculate global contribution for all lin-exp wavelet params (if any)
+    if max_n_wavelet != 0:
+        for itrp in range(int(wave_le_lows.size/max_n_wavelet)*n_wavelet):
+            low = wave_le_lows[itrp]
+            high = wave_le_highs[itrp]
+            par_id = wave_le_par_ids[itrp]
+            value = x0[par_id]
+            if low>value or value>high:
+                log_prior = -np.inf #from enterprise
+            else:
+                log_prior += value*np.log(10)#from enterprise
+
+    #linear exponential prior has component independent of value
+    glitch_global_lin_exp = 0.
+    if max_n_glitch != 0:
+        for itrp in range(int(glitch_le_lows.size/max_n_glitch)):
+            low = glitch_le_lows[itrp]
+            high = glitch_le_highs[itrp]
+            glitch_global_lin_exp += np.log(np.log(10))-np.log(10 ** high - 10 ** low)
+        log_prior += glitch_global_lin_exp*n_glitch
+
+    #linear exponential prior has component independent of value
+    wave_global_lin_exp = 0.
+    if max_n_wavelet != 0:
+        for itrp in range(int(wave_le_lows.size/max_n_wavelet)):
+            low = wave_le_lows[itrp]
+            high = wave_le_highs[itrp]
+            wave_global_lin_exp += np.log(np.log(10))-np.log(10 ** high - 10 ** low)
+        log_prior += wave_global_lin_exp*n_wavelet
+    #print('log_prior_7: ',log_prior)
+    ################
+
+    #loop through all other linear exponential parameters
     nn = lin_exp_par_ids.size
     for itrp in range(nn):
         low = lin_exp_lows[itrp]
@@ -323,7 +450,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         value = x0[par_id]
         if low>value or value>high:
             log_prior = -np.inf #from enterprise
-            #param_rejections[par_id] += 1
         else:
             log_prior += value*np.log(10)#from enterprise
 
@@ -370,7 +496,14 @@ def get_lnprior(x0,FPI):
                                          FPI.normal_par_ids, FPI.normal_mus, FPI.normal_sigs,\
                                          FPI.dm_par_ids, FPI.dm_dists, FPI.dm_errs,\
                                          FPI.px_par_ids, FPI.px_mus, FPI.px_errs,\
-                                         FPI.global_common)
+                                         FPI.global_common, FPI.glitch_uf_par_ids, \
+                                         FPI.glitch_uf_lows, FPI.glitch_uf_highs, FPI.glitch_le_par_ids, \
+                                         FPI.glitch_le_lows, FPI.glitch_le_highs, \
+                                         FPI.wave_uf_par_ids, FPI.wave_uf_lows, \
+                                         FPI.wave_uf_highs, FPI.wave_le_par_ids, \
+                                         FPI.wave_le_lows, FPI.wave_le_highs, FPI.n_wavelet, \
+                                         FPI.n_glitch, FPI.max_n_wavelet, FPI.max_n_glitch)
+
 
 
 def get_lnprior_array(samples,FPI):
@@ -388,7 +521,7 @@ def get_lnprior_helper_array(x0s, uniform_par_ids, uniform_lows, uniform_highs,\
                            normal_par_ids, normal_mus, normal_sigs,\
                            dm_par_ids, dm_dists, dm_errs,\
                            px_par_ids, px_mus, px_errs,\
-                           global_common):
+                           global_common): # n_wavelet, n_glitch,glitch_indx, wavelet_indx ):
     """jittable helper for calculating the log prior"""
     npoint = x0s.shape[0]
 
@@ -469,10 +602,30 @@ def get_sample_full(n_par,FPI):
            ('px_par_ids',nb.int64[:]),('px_mus',nb.float64[:]),('px_errs',nb.float64[:]),\
            ('cut_par_ids',nb.int64[:]),('cut_lows',nb.float64[:]),('cut_highs',nb.float64[:]),\
            ('cw_ext_par_ids',nb.int64[:]),('cw_ext_lows',nb.float64[:]),('cw_ext_highs',nb.float64[:]),\
-           ('global_common',nb.float64)])
+           ('global_common',nb.float64), ('glitch_uf_par_ids', nb.int64[:]), ('glitch_uf_lows', nb.float64[:]),\
+           ('glitch_uf_highs', nb.float64[:]), ('glitch_le_par_ids', nb.int64[:]), ('glitch_le_lows', nb.float64[:]),\
+           ('glitch_le_highs', nb.float64[:]), ('wave_uf_par_ids', nb.int64[:]), ('wave_uf_lows', nb.float64[:]),\
+           ('wave_uf_highs', nb.float64[:]), ('wave_le_par_ids', nb.int64[:]), ('wave_le_lows', nb.float64[:]),\
+           ('wave_le_highs', nb.float64[:]), ('n_wavelet', nb.int64), ('n_glitch', nb.int64), ('max_n_wavelet', nb.int64),\
+           ('max_n_glitch', nb.int64)])
+           #####################
+           # 6/23: Things added:
+           # 1) Added all prior calculations to helper function (though we will want to run through it all to make sure it is correct)
+           # 2) Added parameters into prior info class, params should match between info class class and info __init__ function.
+           # 3) Added new params into prior helper function call in QuickBurst_MCMC (though, like all other calls, will need to make sure these are consistent
+           #    with params in info class and __init__ function.)
+           #6/23 TODO:
+           # 1) Check param types in jitclass param initializer thingy mabob
+           # 2) Make sure param order matches between FPI and FP classes, and params are referenced properly from function definition.
+           # 3) Run it??????
+           # ~ Jacob
+           ##############
 class FastPriorInfo:
     """simple jitclass to store the various elements of fast prior calculation in a way that can be accessed quickly from a numba environment"""
-    def __init__(self, uniform_par_ids, uniform_lows, uniform_highs, lin_exp_par_ids, lin_exp_lows, lin_exp_highs, normal_par_ids, normal_mus, normal_sigs, dm_par_ids, dm_dists, dm_errs, px_par_ids, px_mus, px_errs, cut_par_ids, cut_lows, cut_highs, global_common):
+    def __init__(self, uniform_par_ids, uniform_lows, uniform_highs, lin_exp_par_ids, lin_exp_lows, lin_exp_highs, normal_par_ids, normal_mus, normal_sigs, dm_par_ids, dm_dists, dm_errs, px_par_ids, px_mus, px_errs, cut_par_ids, cut_lows, cut_highs, global_common,
+                 glitch_uf_par_ids, glitch_uf_lows, glitch_uf_highs, glitch_le_par_ids, glitch_le_lows, glitch_le_highs, wave_uf_par_ids, wave_uf_lows, wave_uf_highs, wave_le_par_ids, wave_le_lows, wave_le_highs, n_wavelet, n_glitch,
+                 max_n_wavelet, max_n_glitch):
+        #All other parameter attributes
         self.uniform_par_ids = uniform_par_ids
         self.uniform_lows = uniform_lows
         self.uniform_highs = uniform_highs
@@ -493,7 +646,27 @@ class FastPriorInfo:
         self.cut_highs = cut_highs
         self.global_common = global_common
 
-def get_FastPriorInfo(pta,psrs):
+        #glitch attributes
+        self.glitch_uf_par_ids = glitch_uf_par_ids
+        self.glitch_uf_lows = glitch_uf_lows
+        self.glitch_uf_highs = glitch_uf_highs
+        self.glitch_le_par_ids = glitch_le_par_ids
+        self.glitch_le_lows = glitch_le_lows
+        self.glitch_le_highs = glitch_le_highs
+
+        #wavelet attributes
+        self.wave_uf_par_ids = wave_uf_par_ids
+        self.wave_uf_lows = wave_uf_lows
+        self.wave_uf_highs = wave_uf_highs
+        self.wave_le_par_ids = wave_le_par_ids
+        self.wave_le_lows = wave_le_lows
+        self.wave_le_highs = wave_le_highs
+        self.n_wavelet = n_wavelet
+        self.n_glitch = n_glitch
+        self.max_n_wavelet = max_n_wavelet
+        self.max_n_glitch = max_n_glitch
+
+def get_FastPriorInfo(pta,psrs,max_n_glitch,max_n_wavelet):
     """get FastPriorInfo object from pta"""
     fp_loc = FastPrior(pta,psrs)
     FPI = FastPriorInfo(fp_loc.uniform_par_ids, fp_loc.uniform_lows, fp_loc.uniform_highs,\
@@ -501,6 +674,12 @@ def get_FastPriorInfo(pta,psrs):
                         fp_loc.normal_par_ids, fp_loc.normal_mus, fp_loc.normal_sigs,\
                         fp_loc.dm_par_ids, fp_loc.dm_dists, fp_loc.dm_errs,\
                         fp_loc.px_par_ids, fp_loc.px_mus, fp_loc.px_errs,\
-                        fp_loc.cut_par_ids,fp_loc.cut_lows,fp_loc.cut_highs,\
-                        fp_loc.global_common)
+                        fp_loc.cut_par_ids,fp_loc.cut_lows,fp_loc.cut_highs, \
+                        fp_loc.global_common, fp_loc.glitch_uf_par_ids, fp_loc.glitch_uf_lows, \
+                        fp_loc.glitch_uf_highs, fp_loc.glitch_le_par_ids, \
+                        fp_loc.glitch_le_lows, fp_loc.glitch_le_highs, \
+                        fp_loc.wave_uf_par_ids, fp_loc.wave_uf_lows,\
+                        fp_loc.wave_uf_highs, fp_loc.wave_le_par_ids,\
+                        fp_loc.wave_le_lows, fp_loc.wave_le_highs, max_n_wavelet,\
+                        max_n_glitch, max_n_wavelet, max_n_glitch)
     return FPI
