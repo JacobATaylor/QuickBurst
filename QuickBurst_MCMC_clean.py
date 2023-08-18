@@ -1291,6 +1291,10 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
                 t0_idx = np.digitize(t0_new, np.array(T0_list[tau_idx])/(365.25*24*3600)) - 1
 
                 tau_scan_new_point = tau_scan[tau_idx][f0_idx, t0_idx]
+<<<<<<< HEAD
+=======
+                #print(tau_scan_new_point/tau_scan_limit)
+>>>>>>> 2aa0acaf6b081d265c517d423bc7379d4d43622a
                 if np.random.uniform()<(tau_scan_new_point/tau_scan_limit):
                     accepted = True
                     #print("Yeeeh!")
@@ -2443,6 +2447,11 @@ def get_tf_prior_pta(pta, TF_prior, n_wavelet, prior_recovery=False):
 #SOME HELPER FUNCTIONS
 #
 ################################################################################
+<<<<<<< HEAD
+=======
+# def get_gwb_on(samples, j, i, max_n_wavelet, max_n_glitch, num_noise_params):
+#     return int(samples[j,i,2+max_n_wavelet*10+max_n_glitch*6+num_noise_params]!=0.0)
+>>>>>>> 2aa0acaf6b081d265c517d423bc7379d4d43622a
 
 def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch, params_slice = False):
     #"Special" indexing for handling dumb edge cases when max_n_wavelet = n_wavelet or max_n_glitch = n_glitch
@@ -2458,6 +2467,10 @@ def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wav
     if max_n_glitch != 0 and n_glitch != max_n_glitch:
         glitch_end = glitch_indx[max_n_glitch-1][5]+1
         glitch_start = glitch_indx[n_glitch][0]
+<<<<<<< HEAD
+=======
+    #print('Range of parameters to delete: ', list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)), '\n')
+>>>>>>> 2aa0acaf6b081d265c517d423bc7379d4d43622a
     if params_slice:
         return np.delete(samples, list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)))
     else:
@@ -2476,6 +2489,11 @@ def get_similarity_matrix(pta, delays_list, noise_param_dict=None):
     else:
         pta.set_default_params(noise_param_dict)
 
+<<<<<<< HEAD
+=======
+    #print(pta.summary())
+
+>>>>>>> 2aa0acaf6b081d265c517d423bc7379d4d43622a
     phiinvs = pta.get_phiinv([], logdet=False)
     TNTs = pta.get_TNT([])
     Ts = pta.get_basis()
@@ -2493,6 +2511,12 @@ def get_similarity_matrix(pta, delays_list, noise_param_dict=None):
             for j in range(n_wf):
                 delay_i = delays_list[i][idx]
                 delay_j = delays_list[j][idx]
+<<<<<<< HEAD
+=======
+                #print(delay_i)
+                #print(Nmat)
+                #print(Nmat, T, Sigma)
+>>>>>>> 2aa0acaf6b081d265c517d423bc7379d4d43622a
                 S[i,j] += Fe_statistic.innerProduct_rr(delay_i, delay_j, Nmat, T, Sigma)
     return S
 
