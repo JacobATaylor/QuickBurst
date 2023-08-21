@@ -319,7 +319,6 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
             print("Tau-scan data read in successfully!")
 
         tau_scan = tau_scan_data['tau_scan']
-        print(len(tau_scan))
 
         TAU_list = list(tau_scan_data['tau_edges'])
         F0_list = tau_scan_data['f0_edges']

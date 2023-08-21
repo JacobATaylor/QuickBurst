@@ -61,7 +61,7 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
     n_fish_update = n_fish_update*n_fast_to_slow
     save_every_n = save_every_n*n_fast_to_slow
 
-    print('Saving every {} samples '.format(save_every_n), '\n')
+    print('Saving every {0} samples, total samples: {1} '.format(save_every_n, N), '\n')
     print('Ending total saved samples: {}'.format(int(N/thin)), '\n')
 
     #If no wn or rn variance, shouldn't do any noise jumps
