@@ -55,22 +55,32 @@ class QuickBurst:
         self.logdet_previous = np.copy(self.logdet)
         #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
         self.invCholSigmaTN = []
-        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+        self.Ndiag = []
+        #phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+        phiinvs = self.pta.get_phiinv(self.params, logdet=True, method='partition')
+        temp_logdetphi = []
+        temp_chol_Sigma = []
         for ii in range(self.Npsr):
             TNT = self.TNTs[ii]
             T = self.Ts[ii]
-            phiinv = phiinvs[ii]
+            #phiinv = phiinvs[ii]
+            phiinv, logdetphi_loc = phiinvs[ii]
+            temp_logdetphi.append(logdetphi_loc)
             Ndiag = 1/self.Nvecs[ii]
+            self.Ndiag.append(Ndiag)
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            temp_chol_Sigma.append(chol_Sigma)
             invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
             self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+
         self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+        self.Ndiag_previous = np.copy(self.Ndiag)
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
         self.rn_vary = rn_vary
         self.no_step = False
-        self.resres_logdet = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
+        self.resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals, self.invCholSigmaTN, self.Ndiag, temp_logdetphi, temp_chol_Sigma))
         self.resres_logdet_previous = np.copy(self.resres_logdet)
 
         #check if we are doing a prior recovery runs
@@ -102,6 +112,7 @@ class QuickBurst:
         #space to story current shape parameters to decided it we need to update NN and MM
         self.Saved_Shape = np.zeros((3*Nwavelet_max + 3*Nglitch_max))
         self.key_list = list(self.params)#makes a list of the keys in the params Dictionary
+        self.pta_param_names = self.pta.param_names
         #self.key_list = List(key_list)#ussing the numba method of typed lists to make something we can easily use in jit
         self.glitch_indx = np.zeros((Nglitch_max,6))
         self.wavelet_indx = np.zeros((Nwavelet_max,10))
@@ -135,26 +146,30 @@ class QuickBurst:
     #####
     def get_M_N(self, glitch_pulsars, glitch_pulsars_previous, dif_flag):
 
-        phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
-        if self.rn_vary or self.wn_vary:
-            #self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
-            self.invCholSigmaTN = []
-        #reset MM and NN to zeros when running this function
-        #self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
-        #self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
-
+        #### start of cov calc stuff #######
+        # phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+        # if self.rn_vary or self.wn_vary:
+        #     #self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+        #     self.invCholSigmaTN = []
+        # #reset MM and NN to zeros when running this function
+        # #self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
+        # #self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
+        # for ii in range(self.Npsr):
+        #     Ndiag = 1/self.Nvecs[ii]
+        #     if self.rn_vary or self.wn_vary:
+        #         #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+        #         TNT = self.TNTs[ii]
+        #         T = self.Ts[ii]
+        #         phiinv = phiinvs[ii]
+        #         Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+        #         chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+        #         invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+        #         self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+        #     invCholSigmaTN = np.copy(self.invCholSigmaTN[ii])
+        #### end of cov calc stuff #######
         for ii in range(self.Npsr):
-            Ndiag = 1/self.Nvecs[ii]
-            if self.rn_vary or self.wn_vary:
-                #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
-                TNT = self.TNTs[ii]
-                T = self.Ts[ii]
-                phiinv = phiinvs[ii]
-                Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
-                chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-                invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-                self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
-            invCholSigmaTN = self.invCholSigmaTN[ii]
+            invCholSigmaTN = np.copy(self.invCholSigmaTN[ii])
+            Ndiag = self.Ndiag[ii]#= 1/self.Nvecs[ii]
             #saves filter fuction terms for the dot_product
             invCholSigmaTNfilter = np.zeros((self.Nwavelet + self.Nglitch,2,len(invCholSigmaTN[:,0]))) #stores the cholesky terms for use in dot products
 
@@ -228,28 +243,35 @@ class QuickBurst:
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
         self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+        self.Ndiag_previous = np.copy(self.Ndiag)
 
         #Need to make sure we update inverse cholesky matrix when in the edge case of 0 wavelets and 0 glitches
         #Cholesky matrix changes when we add wavelets/glitches, but still doesn't trigger when varying noise in this case.
+        ####### start of cov calc stuff #######
         if self.Nwavelet + self.Nglitch == 0:
-            d0 = {}
-            for ii in range(len(x0)):
-                d0[self.pta.param_names[ii]] = x0[ii]
+            # d0 = {}
+            # for ii in range(len(x0)):
+            #     d0[self.pta.param_names[ii]] = x0[ii]
+            #param_name_list = self.pta.param_names
+            d0 = dict((k, v) for k, v in zip(self.pta_param_names, x0))
             self.params_previous = np.copy(self.params)
             self.params = d0
-            phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
-            self.invCholSigmaTN = []
-            for ii in range(self.Npsr):
-                Ndiag = 1/self.Nvecs[ii]
-                #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
-                TNT = self.TNTs[ii]
-                T = self.Ts[ii]
-                phiinv = phiinvs[ii]
-                Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
-                chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-                invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-                self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
 
+            _,_ = self.cov_calculator()
+            #_ = self.cov_calculator(logdet = False)
+            # phiinvs = self.pta.get_phiinv(self.params, logdet=False, method='partition') #use enterprise to calculate phiinvs
+            # self.invCholSigmaTN = []
+            # for ii in range(self.Npsr):
+            #     Ndiag = 1/self.Nvecs[ii]
+            #     #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+            #     TNT = self.TNTs[ii]
+            #     T = self.Ts[ii]
+            #     phiinv = phiinvs[ii]
+            #     Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+            #     chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            #     invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+            #     self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+        ###### end of cov calc stuff ######
         self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
         if glitch_change:
             self.glitch_pulsars = -1*np.ones((len(self.glitch_prm[:,3])))
@@ -365,6 +387,34 @@ class QuickBurst:
     def get_sigmas(self, glitch_pulsars):
         return get_sigmas_helper(self.pos, self.sigmas, glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
 
+
+    ######
+    #calculate the cholesky components for dot products
+    ######
+    def cov_calculator(self):
+        phiinvs = self.pta.get_phiinv(self.params, logdet=True, method='partition') #use enterprise to calculate phiinvs
+        self.invCholSigmaTN = []
+        self.Ndiag = []
+        #reset MM and NN to zeros when running this function
+        #self.MMs = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch,2*self.Nwavelet + 2*self.Nglitch))
+        #self.NN = np.zeros((self.Npsr,2*self.Nwavelet + 2*self.Nglitch))
+        temp_logdetphi = []
+        temp_chol_Sigma = []
+        for ii in range(self.Npsr):
+            Ndiag = 1/self.Nvecs[ii]
+            self.Ndiag.append(Ndiag)
+            #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
+            TNT = self.TNTs[ii]
+            T = self.Ts[ii]
+            phiinv, logdetphi = phiinvs[ii]
+            temp_logdetphi.append(logdetphi)
+            Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+            chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+            temp_chol_Sigma.append(chol_Sigma)
+            invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+            self.invCholSigmaTN.append(invchol_Sigma_T_loc*Ndiag)
+        return temp_logdetphi, temp_chol_Sigma
+
     #####
     #calculates lnliklihood for a set of signal parameters
     #####
@@ -392,9 +442,11 @@ class QuickBurst:
         self.no_step = no_step
 
         if self.rn_vary or self.wn_vary:
-            d0 = {}
-            for ii in range(len(x0)):
-                d0[self.pta.param_names[ii]] = x0[ii]
+            # d0 = {}
+            # for ii in range(len(x0)):
+            #     d0[self.pta.param_names[ii]] = x0[ii]
+            #param_name_list = self.pta.param_names
+            d0 = dict((k, v) for k, v in zip(self.pta_param_names, x0))
             self.params_previous = np.copy(self.params)
             self.params = d0
             # for k in range(len(self.key_list)):
@@ -408,6 +460,8 @@ class QuickBurst:
         #get_parameters needs to change to account for changing indexes for wavelet/glitch parameters
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
 
+        # if self.rn_vary or self.wn_vary:
+        #     temp_logdetphi, temp_chol_Sigma = self.cov_calculator(logdet = True)
         #check if shape params have changed between runs
         dif_flag = np.zeros((self.Nwavelet + self.Nglitch))
         for i in range(self.Nwavelet):
@@ -443,9 +497,11 @@ class QuickBurst:
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
         self.invCholSigmaTN_previous = np.copy(self.invCholSigmaTN)
+        self.Ndiag_previous = np.copy(self.Ndiag)
 
         #If varying any noise, recalculate all of M and N
         if self.rn_vary  or self.wn_vary:
+            temp_logdetphi, temp_chol_Sigma = self.cov_calculator()
             dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
             #print('run mn')
@@ -460,11 +516,11 @@ class QuickBurst:
             for (l,m) in self.pta.get_rNr_logdet(self.params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
                 self.logdet += m
         if self.rn_vary or self.wn_vary:
-            resres_logdet = self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
+            resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals, self.invCholSigmaTN, self.Ndiag, temp_logdetphi, temp_chol_Sigma))
             self.resres_logdet_previous = np.copy(self.resres_logdet)
             self.resres_logdet = np.copy(resres_logdet)
         else:
-            resres_logdet = self.resres_logdet
+            resres_logdet = np.copy(self.resres_logdet)
         #calls jitted function that compiles all likelihood contributions
         temp_like = liklihood_helper(self.sigmas, self.glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
         if self.no_step:
@@ -485,6 +541,7 @@ class QuickBurst:
             if vary_red_noise or vary_white_noise:
                 self.params = np.copy(self.params_previous)
                 self.resres_logdet = np.copy(self.resres_logdet_previous)
+                self.Ndiag = np.copy(self.Ndiag_previous)
             if vary_white_noise:
                 self.Nvecs = np.copy(self.Nvecs_previous)
                 self.TNTs = np.copy(self.TNTs_previous)
@@ -502,63 +559,6 @@ class QuickBurst:
                 self.Nglitch = self.Nglitch_previous
                 self.Nwavelet = self.Nwavelet_previous
             #print(self.params)
-
-    #####
-    #replaces saved values when deciding on MCMC step
-    #####
-    def validate_values(self, x0, vary_white_noise = False, vary_red_noise = False):
-        print('validate values')
-        print('self.wn_vary/vary_white_noise: ', self.wn_vary, vary_white_noise)
-        if vary_red_noise or vary_white_noise:
-            d0 = {}
-            for ii in range(len(x0)):
-                d0[self.pta.param_names[ii]] = x0[ii]
-            params_test = d0
-            #assert params_test == self.params
-            if params_test != self.params:
-                print('saved params missmatched:')
-                #print(params_test)
-                #print(self.params)
-            else:
-                print('params ok')
-
-        if vary_white_noise:
-            Nvecs_test = list(self.pta.get_ndiag(self.params))
-            TNTs_test = self.pta.get_TNT(self.params)
-            #assert Nvecs_test == self.Nvecs
-            #assert np.all(TNTs_test == self.TNTs)
-            if np.all(Nvecs_test) != np.all(self.Nvecs):
-                print('saved Nvecs missmatched:')
-                print(Nvecs_test)
-                print(self.Nvecs)
-            else:
-                print('Nvecs ok')
-            if np.all(TNTs_test) != np.all(self.TNTs):
-                print('saved TNTs missmatched:')
-                print(TNTs_test)
-                print(self.TNTs)
-            logdet_test = 0
-            for (l,m) in self.pta.get_rNr_logdet(self.params): #Only using this for logdet term because the rNr term removes the deterministic signal durring generation
-                logdet_test += m
-            #assert logdet_test == self.logdet
-            if logdet_test != self.logdet:
-                print('saved logdet missmatched:')
-                print(logdet_test)
-                print(self.logdet)
-            else:
-                print('logdet ok:')
-                print(logdet_test)
-                print(self.logdet)
-        else:
-            logdet_test = self.logdet
-        if vary_red_noise or vary_white_noise:
-            resres_logdet_test = logdet_test + resres_logdet_calc(self.Npsr, self.pta, self.params, self.TNTs, self.Ts, self.Nvecs, self.residuals)
-            #assert resres_logdet_test == self.resres_logdet
-            if resres_logdet_test != self.resres_logdet:
-                print('saved resres_logdet missmatched:')
-                print(resres_logdet_test)
-                print(self.resres_logdet)
-
 
 
 #####
@@ -611,35 +611,39 @@ def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglit
 #updating non-signal likelihood terms as we go
 #####
 #@njit(parallel=True,fastmath=True)
-def resres_logdet_calc(Npsr, pta, params, TNTs, Ts, Nvecs, residuals):
+def resres_logdet_calc(Npsr, pta, params, TNTs, Ts, Nvecs, residuals, invCholSigmaTN, Ndiag, temp_logdetphi, temp_chol_Sigma):
     #generate arrays to store res|res and logdet(2*Pi*N) terms
     rNr_loc = np.zeros(Npsr)
     logdet_array = np.zeros(Npsr)
-    pls_temp = pta.get_phiinv(params, logdet=True, method='partition')
-
+    ###### start of cov calc stuff ######
+    # pls_temp = pta.get_phiinv(params, logdet=True, method='partition')
+    #
+    # for i in range(Npsr):
+    #     #compile terms in order to do cholesky component of dot products
+    #     phiinv_loc,logdetphi_loc = pls_temp[i]
+    #     TNT = TNTs[i]
+    #     T = Ts[i]
+    #     Sigma = TNTs[i]+(np.diag(phiinv_loc) if phiinv_loc.ndim == 1 else phiinv_loc)
+    #     Ndiag = 1/Nvecs[i]
+    #     #(res|res) calculation
+    #     aNb = residuals[i]*Ndiag@residuals[i]
+    #
+    #     chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
+    #     invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
+    #     invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
+    ###### end of cov calc stuff ######
     for i in range(Npsr):
-        #compile terms in order to do cholesky component of dot products
-        phiinv_loc,logdetphi_loc = pls_temp[i]
-        TNT = TNTs[i]
-        T = Ts[i]
-        Sigma = TNTs[i]+(np.diag(phiinv_loc) if phiinv_loc.ndim == 1 else phiinv_loc)
-        Ndiag = 1/Nvecs[i]
-        #(res|res) calculation
-        aNb = residuals[i]*Ndiag@residuals[i]
-
-        chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
-        invchol_Sigma_T_loc = solve_triangular(chol_Sigma,T.T,lower_a=True,trans_a=False,overwrite_b=False)
-        invCholSigmaTN = invchol_Sigma_T_loc*Ndiag
-
-        SigmaTNaProd = invCholSigmaTN@residuals[i]
-        SigmaTNbProd = invCholSigmaTN@residuals[i]
+        #Ndiag = 1/Nvecs[i]
+        aNb = residuals[i]*Ndiag[i]@residuals[i]
+        SigmaTNaProd = invCholSigmaTN[i]@residuals[i]
+        SigmaTNbProd = invCholSigmaTN[i]@residuals[i]
         dotSigmaTNr = SigmaTNaProd.T@SigmaTNbProd
         #first term in the dot product
         rNr_loc[i] = aNb - dotSigmaTNr
 
-        logdet_Sigma_loc = logdet_Sigma_helper(chol_Sigma)
+        logdet_Sigma_loc = logdet_Sigma_helper(temp_chol_Sigma[i])
         #add the necessary component to logdet
-        logdet_array[i] =  logdetphi_loc + logdet_Sigma_loc
+        logdet_array[i] =  temp_logdetphi[i] + logdet_Sigma_loc
 
 
     #Non-signal dependent terms
