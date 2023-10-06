@@ -26,6 +26,7 @@ class QuickBurst:
     #####
     #generate object with the res|res and logdet terms that only depend on non-signal based parameters pre-calculated
     #####
+    #__slots__ = ["pta", "psrs", "params", "Npsr", "tref", "Nglitch"]
     def __init__(self, pta, psrs, params, Npsr, tref, Nglitch, Nwavelet, Nglitch_max, Nwavelet_max, rn_vary, wn_vary,  prior_recovery=False):
 
         #model parameters that shouldn't change for a run
