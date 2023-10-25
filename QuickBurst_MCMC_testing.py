@@ -851,7 +851,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
     if ent_lnlike_test and ent_verbosity:
         return samples[:,::n_fast_to_slow,:], acc_fraction, swap_record, rj_record, pta, ent_ptas, log_likelihood[:,::n_fast_to_slow], ent_lnlikelihood[:, ::n_fast_to_slow], betas[:,::n_fast_to_slow], PT_acc, noise_steps, step_array, likelihood_attributes
     elif ent_lnlike_test:
-        return samples[:,::n_fast_to_slow,:], acc_fraction, swap_record, rj_record, pta, ent_ptas, log_likelihood[:,::n_fast_to_slow], ent_lnlikelihood[:, ::n_fast_to_slow], betas[:,::n_fast_to_slow], PT_acc, noise_steps, step_array,
+        return samples[:,::n_fast_to_slow,:], acc_fraction, swap_record, rj_record, pta, ent_ptas, log_likelihood[:,::n_fast_to_slow], ent_lnlikelihood[:, ::n_fast_to_slow], betas[:,::n_fast_to_slow], PT_acc, noise_steps, step_array
     else:
         return samples[:,::n_fast_to_slow,:], acc_fraction, swap_record, rj_record, pta, log_likelihood[:,::n_fast_to_slow], betas[:,::n_fast_to_slow], PT_acc, noise_steps
 
