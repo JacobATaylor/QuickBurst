@@ -48,7 +48,7 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
             tau_scan_proposal_weight=0, tau_scan_file=None, draw_from_prior_weight=0,
             de_weight=0, prior_recovery=False, wavelet_amp_prior='uniform', gwb_amp_prior='uniform', rn_amp_prior='uniform', per_psr_rn_amp_prior='uniform',
             gwb_log_amp_range=[-18,-11], rn_log_amp_range=[-18,-11], per_psr_rn_log_amp_range=[-18,-11], wavelet_log_amp_range=[-18,-11],
-            vary_white_noise=False, efac_start=None, include_equad=False, include_ecorr = False, wn_backend_selection=False, noisedict=None, gwb_switch_weight=0,
+            vary_white_noise=False, efac_start=None, include_equad=False, include_ecorr = False, include_efac = False, vary_efac = False, wn_backend_selection=False, noisedict=None, gwb_switch_weight=0,
             include_rn=False, vary_rn=False, num_total_wn_params=None, rn_params=[-13.0,1.0], include_per_psr_rn=False, vary_per_psr_rn=False, per_psr_rn_start_file=None,
             jupyter_notebook=False, gwb_on_prior=0.5,
             max_n_glitch=1, glitch_amp_prior='uniform', glitch_log_amp_range=[-18, -11], n_glitch_prior='flat', n_glitch_start='random', t0_min=0.0, t0_max=10.0, tref=53000*86400,
@@ -76,8 +76,8 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
         with open(TF_prior_file, 'rb') as f:
             TF_prior = pickle.load(f)
     pta, ent_ptas, QB_FP, QB_FPI, glitch_indx, wavelet_indx, per_puls_indx, rn_indx, num_per_puls_param_list = get_pta(pulsars, vary_white_noise=vary_white_noise, include_equad=include_equad,
-                                                                                                    include_ecorr = include_ecorr, wn_backend_selection=wn_backend_selection,
-                                                                                                    noisedict=noisedict, include_rn=include_rn, vary_rn=vary_rn,
+                                                                                                    include_ecorr = include_ecorr, include_efac = include_efac, vary_efac = vary_efac,
+                                                                                                    wn_backend_selection=wn_backend_selection,noisedict=noisedict, include_rn=include_rn, vary_rn=vary_rn,
                                                                                                     include_per_psr_rn=include_per_psr_rn, vary_per_psr_rn=vary_per_psr_rn,
                                                                                                     max_n_wavelet=max_n_wavelet, efac_start=efac_start, rn_amp_prior=rn_amp_prior,
                                                                                                     rn_log_amp_range=rn_log_amp_range, rn_params=rn_params, per_psr_rn_amp_prior=per_psr_rn_amp_prior,
@@ -266,9 +266,12 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
 
                 #Setting starting values based on M2A or noise run chain
                 if noisedict is not None:
+                    #print('Noise dict loaded: ',noisedict.keys())
                     #load in params from dictionary
-                    for param, idx in enumerate(pta.param_names):
+                    for idx, param in enumerate(pta.param_names):
+                        #print('For working: ', param)
                         if param in noisedict.keys():
+                            #print('param_set: ',param)
                             samples[j, 0, 2+idx] = noisedict[param]
 
                 #set all wavelet gw sources to same sky location
@@ -295,7 +298,8 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
             n_glitch = int(samples[j,0,1]) #get_n_glitch(samples, j, 0)
             first_sample = np.copy(samples[j,0,2:])
             #first_sample = strip_samples(samples, j, 0, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch)
-
+            print('param list: ',pta.param_names)
+            print('first_sample: ', first_sample)
             #Generate first sample param dictionary
             sample_dict = {}
             for i in range(len(first_sample)):
@@ -517,7 +521,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
 
     t_start = time.time()
 
-
+    N_Noise_Params_changed = 0 #tuning param for noise jumps
 
     #########################
     #MAIN MCMC LOOP
@@ -761,31 +765,56 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
                     # for various kinds of jumps by pulling out eigenvectors from Fisher Matrix for particular
                     # parameters that are being updated.
 
+                    #
                     #wavelet eigenvectors
                     if n_wavelet!=0:
                         eigenvectors = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,i%save_every_n], n_sources=n_wavelet, array_index=wavelet_indx, flag = True)
-                        if np.all(eigenvectors):
+                        if eigenvectors.size > 0:#np.all(eigenvectors[np.where(eigenvectors != 0)]):
                             eig[j,:n_wavelet,:,:] = eigenvectors
+                        else:
+                            print('wave bad')
 
                     #glitch eigenvectors
                     if n_glitch!=0:
                         eigen_glitch = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,i%save_every_n], n_sources=n_glitch, dim=6, array_index=glitch_indx, flag = True)
-                        if np.all(eigen_glitch):
+                        if eigen_glitch.size > 0:
                             eig_glitch[j,:n_glitch,:,:] = eigen_glitch
+                        else:
+                            print('glitch bad')
 
                     #RN eigenvectors
                     if vary_rn:
                         eigvec_rn = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,i%save_every_n], n_sources=1, dim=len(rn_indx), array_index=rn_indx, vary_rn = vary_rn)
-                        if np.all(eigvec_rn):
+                        if eigvec_rn.size > 0:
                             eig_rn[j,:,:] = eigvec_rn[0,:,:]
+                        else:
+                            print('rn bad')
 
                     #per PSR eigenvectors
-                    if vary_per_psr_rn or vary_white_noise:
-                        per_psr_eigvec = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,i%save_every_n], n_sources=len(pulsars), dim=len(per_puls_indx[1]), array_index=per_puls_indx, vary_white_noise = vary_white_noise, vary_psr_red_noise = vary_per_psr_rn)
-                        if np.all(per_psr_eigvec):
-                            eig_per_psr[j,:,:] = per_psr_eigvec[0,:,:]
+                    if j == 0:
+                        if vary_per_psr_rn or vary_white_noise:
+                            print('per pulsar eigenvectors ', '\n')
+                            #T_chain=1/betas[j,i%save_every_n]
 
-                    #print('QB_Info[j].resres_logdet: ',QB_Info[j].NN)
+                            ''' per_psr_eigvec indexes correspond to: [chain, pulsar, param, param]'''
+                            per_psr_eigvec = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], n_sources=len(pulsars), dim=len(per_puls_indx[1]), array_index=per_puls_indx, vary_intrinsic_noise = True, vary_white_noise = vary_white_noise, vary_psr_red_noise = vary_per_psr_rn)
+                            # if np.all(per_psr_eigvec):
+                            #     eig_per_psr[j,:,:] = per_psr_eigvec[0,:,:]
+                            #set to 0 all params in each eigenvector that are less than highest val
+                            #set small values to 0, sum together pulsar eigenvectors in jump to get more informative jump
+                            #Add extra loop over pulsars in noise_jump to add together pulsar eigenvectors in jump
+
+                            N_Noise_Params_changed = int(per_psr_eigvec[0].shape[0]/10) #tuning param for noise jumps
+                            print('N_Noise_Params_changed: ',N_Noise_Params_changed)
+            #Approximation for eigenvectors (scale other eigenvectors by chain temps)
+            if vary_per_psr_rn or vary_white_noise:
+                for j in range(n_chain):
+                    T_chain=1/betas[j,i%save_every_n]
+                    if per_psr_eigvec.size > 0:
+                        eig_per_psr[j,:,:] = per_psr_eigvec[0,:,:]*(T_chain)**(1/2)
+                        print('eign_per_pulsar re-writen')
+                    else:
+                        print('per_psr bad')
         ###########################################################
         #
         #Do the actual MCMC step
@@ -810,7 +839,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {6:.2f}%\nJumps along F
                 #step_array.append('RJ')
             #jump to change some noise parameters
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability):
-                noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, ent_ptas, QB_FPI, QB_logl, likelihood_attributes, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx, num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, ent_lnlikelihood, ent_lnlike_test, ent_verbosity, attributes_to_test, step_array, wavelet_indx, glitch_indx, noise_steps)
+                noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, ent_ptas, QB_FPI, QB_logl, likelihood_attributes, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx, num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, ent_lnlikelihood, ent_lnlike_test, ent_verbosity, attributes_to_test, step_array, wavelet_indx, glitch_indx, noise_steps, N_Noise_Params_changed)
                 #step_array.append('NOISE')
             #jump to change glitch params
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability+glitch_tau_scan_proposal_probability):
@@ -2175,7 +2204,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
 #NOISE MCMC JUMP ROUTINE (JUMPING ALONG EIGENDIRECTIONS IN WHITE NOISE PARAMETERS)
 #
 ################################################################################
-def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, ent_ptas, FPI, QB_logl, likelihood_attributes, QB_Info, samples, i, betas, a_yes, a_no, eig_per_psr, per_puls_indx, num_noise_params, vary_white_noise, vary_rn, log_likelihood, ent_lnlikelihood, ent_lnlike_test, ent_verbosity, attributes_to_test, step_array, wavelet_indx, glitch_indx, noise_steps):
+def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, ent_ptas, FPI, QB_logl, likelihood_attributes, QB_Info, samples, i, betas, a_yes, a_no, eig_per_psr, per_puls_indx, num_noise_params, vary_white_noise, vary_rn, log_likelihood, ent_lnlikelihood, ent_lnlike_test, ent_verbosity, attributes_to_test, step_array, wavelet_indx, glitch_indx, noise_steps, N_Noise_Params_changed):
     #print("NOISE")
     #print('noise jump ent_lnlike_test, ent_verbosity: ', ent_lnlike_test, ent_verbosity)
     step_array.append('noise_jump')
@@ -2184,20 +2213,38 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, ent_ptas, FPI, QB_logl
         n_glitch = int(samples[j,i,1]) #get_n_glitch(samples, j, i)
 
         samples_current = np.copy(samples[j,i,2:])
+
         #do the wn jump
-        jump_select = np.random.randint(eig_per_psr.shape[1])
-        jump_wn = eig_per_psr[j,jump_select,:]
+        # jump_select = np.random.randint(eig_per_psr.shape[1])
+        # jump_wn = eig_per_psr[j,jump_select,:]
+        jump_wn = np.zeros(eig_per_psr[j,0,:].shape)
+        #print('init jump_wn, ',jump_wn)
+        for nnn in range(N_Noise_Params_changed):
+            jump_select = np.random.randint(eig_per_psr.shape[1])
+            jump_wn += eig_per_psr[j,jump_select,:]
+            #print('append jump_wn, ',jump_wn)
+
+        #print('Shape comparison of jump_wn and chain: ', jump_wn.size, samples_current.size)
+        #print('Noise_jump for chain {0}, pulsar {1}: '.format(j, jump_select), jump_wn, '\n')
 
         jump = np.zeros(samples_current.size)
         param_count = 0
 
         #Loop through all pulsars and pulsar noise params
+        param_indexes = []
+
         for ii in range(len(per_puls_indx)):
             for jj in range(len(per_puls_indx[ii])):
+                param_indexes.append(per_puls_indx[ii][jj])
                 #Jump through noise params (which should correspond to noise eigenvector indexes)
                 #if param_count < num_noise_params:
                 jump[per_puls_indx[ii][jj]] = jump_wn[param_count]
                 param_count += 1
+
+        #Mapping indexes to params being varied
+        zipped_list = list(zip(param_indexes, [QB_logl[j].pta_param_names[s] for s in param_indexes]))[:]
+        #print('Nonzero param jumps (param_indexes,[pta.params[s] for s in param_indexes]): ', zipped_list)
+        #print(('Parameter jump for chain {}: '.format(j), jump*np.random.normal()))
 
         new_point = samples_current + jump*np.random.normal()
 
@@ -2348,14 +2395,23 @@ def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, likeliho
 #FISHER EIGENVALUE CALCULATION
 #
 ################################################################################
-def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4, n_sources=1, dim=10, array_index=None, use_prior=False, flag = False, vary_white_noise = False, vary_psr_red_noise = False, vary_rn = False):#offset=0, use_prior=False):
+def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4, n_sources=1, dim=10, array_index=None, use_prior=False, flag = False, vary_intrinsic_noise = False, vary_white_noise = False, vary_psr_red_noise = False, vary_rn = False):#offset=0, use_prior=False):
     #print('FISHER STEP')
     n_source=n_sources # this needs to not be used for the non-wavelet/glitch indexing (set to 1)
     eig = []
-
     index_rows = len(array_index)
+    print('get_fisher len(array_index): ', index_rows)
+    print('get_fisher np.shape(array_index): ', np.shape(array_index))
+    print('Array Index: ', array_index)
     if flag or vary_rn:
         fisher = np.zeros((n_source,dim,dim))
+    elif vary_intrinsic_noise:
+        offset_array = []
+        dim = 0
+        for psr in range(len(array_index)):
+            offset_array.append(len(array_index[psr]))
+            dim += len(array_index[psr])
+        fisher = np.zeros((n_source, dim, dim))
     else:
         fisher = np.zeros((n_source,dim*index_rows,dim*index_rows))
     #lnlikelihood at specified point
@@ -2425,7 +2481,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
                     fisher[k,i,j] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                     fisher[k,j,i] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
 
-            #correct for the given temperature of the chain
+            #correct for the given temperature of the chain (11/16: Moved temp scaling to main loop)
             fisher = fisher/T_chain
 
             try:
@@ -2448,13 +2504,14 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 
             except:
                 print("An Error occured in the eigenvalue calculation")
-                eig.append( np.array(False) )
+                #eig.append( np.array(False) )
 
     #Run this if not doing wavelet/glitch stuff
     elif vary_psr_red_noise or vary_white_noise:
         #diagonal terms in fisher matrices
         for n in range(index_rows):
             dim = len(array_index[n])
+            offset = sum(offset_array[:n])
             #print('Dimensions!!!!!: ', dim)
             for i in range(dim):
                 #create parameter vectors with +-epsilon in the ith component
@@ -2476,9 +2533,11 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 
                 #calculate diagonal elements of the Hessian from a central finite element scheme
                 #note the minus sign compared to the regular Hessian
-                fisher[1,i+n*dim,i+n*dim] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
+                fisher[1,i+offset,i+offset] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
         for n in range(index_rows):
             #calculate off-diagonal elements
+            dim = len(array_index[n])
+            offset = sum(offset_array[:n])
             for i in range(dim):
                 for j in range(i+1,dim):
                     #create parameter vectors with ++, --, +-, -+ epsilon in the ith and jth component
@@ -2510,8 +2569,8 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 
                     #calculate off-diagonal elements of the Hessian from a central finite element scheme
                     #note the minus sign compared to the regular Hessian
-                    fisher[1,i+n*dim,j+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
-                    fisher[1,j+n*dim,i+n*dim] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+                    fisher[1,i+offset,j+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
+                    fisher[1,j+offset,i+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
         try:
             #Filter nans and infs and replace them with 1s
             #this will imply that we will set the eigenvalue to 100 a few lines below
@@ -2528,11 +2587,18 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 
             W = np.where(np.abs(w)>eig_limit, w, eig_limit)
 
-            eig.append( (np.sqrt(1.0/np.abs(W))*v).T )
+            eig_temp = (np.sqrt(1.0/np.abs(W))*v).T #the eigenvalues we would normally output
+            #print('eig_temp initial: ', eig_temp)
+            for iii in range(eig_temp.shape[0]):
+                eig_max = np.max(eig_temp[iii])
+                eig_temp[iii] = np.where(eig_temp[iii] < eig_max/10, 0, eig_temp[iii]) #set non-max small values to 0
+                #print('eig {0} non-zeros'.format(iii), len(np.where(eig_temp[iii] > 0)[0]))
+            #print('eig_temp zeroed: ', eig_temp)
+            eig.append(eig_temp)
 
         except:
             print("An Error occured in the eigenvalue calculation")
-            eig.append(np.array(False))
+            #eig.append(np.array(False))
 
     elif vary_rn:
         print('CURN is varied! Fisher steps!')
@@ -2596,7 +2662,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
                 #note the minus sign compared to the regular Hessian
                 fisher[0,i,j] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                 fisher[0,j,i] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
-        #correct for the given temperature of the chain
+        #correct for the given temperature of the chain (11/16: Moved temp scaling in main loop)
         fisher = fisher/T_chain
 
         try:
@@ -2619,7 +2685,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 
         except:
             print("An Error occured in the eigenvalue calculation")
-            eig.append( np.array(False) )
+            #eig.append( np.array(False) )
 
     return np.array(eig)
 
@@ -2629,11 +2695,16 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 #FUNCTION TO EASILY SET UP A LIST OF PTA OBJECTS
 #
 ################################################################################
-def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr = False, wn_backend_selection=False, noisedict=None, include_rn=True, vary_rn=True, include_per_psr_rn=False, vary_per_psr_rn=False, max_n_wavelet=1, efac_start=1.0, rn_amp_prior='uniform', rn_log_amp_range=[-18,-11], rn_params=[-14.0,1.0], gwb_amp_prior='uniform', gwb_log_amp_range=[-18,-11], wavelet_amp_prior='uniform', wavelet_log_amp_range=[-18,-11], per_psr_rn_amp_prior='uniform', per_psr_rn_log_amp_range=[-18,-11], prior_recovery=False, ent_lnlike_test = False, max_n_glitch=1, glitch_amp_prior='uniform', glitch_log_amp_range=[-18, -11], t0_min=0.0, t0_max=10.0, f0_min=3.5e-9, f0_max=1e-7, TF_prior=None, use_svd_for_timing_gp=True, tref=53000*86400):
+def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr = False, include_efac = False, vary_efac = False, wn_backend_selection=False, noisedict=None, include_rn=True, vary_rn=True, include_per_psr_rn=False, vary_per_psr_rn=False, max_n_wavelet=1, efac_start=1.0, rn_amp_prior='uniform', rn_log_amp_range=[-18,-11], rn_params=[-14.0,1.0], gwb_amp_prior='uniform', gwb_log_amp_range=[-18,-11], wavelet_amp_prior='uniform', wavelet_log_amp_range=[-18,-11], per_psr_rn_amp_prior='uniform', per_psr_rn_log_amp_range=[-18,-11], prior_recovery=False, ent_lnlike_test = False, max_n_glitch=1, glitch_amp_prior='uniform', glitch_log_amp_range=[-18, -11], t0_min=0.0, t0_max=10.0, f0_min=3.5e-9, f0_max=1e-7, TF_prior=None, use_svd_for_timing_gp=True, tref=53000*86400):
     #setting up base model
     print('get_pta ent_lnlike_test: ', ent_lnlike_test)
     if vary_white_noise:
-        efac = parameter.Uniform(0.01, 10.0)
+        #Include constant efac in both places, in case we want to fix efac but vary other things.
+        if include_efac:
+            if vary_efac:
+                efac = parameter.Uniform(0.01, 10.0)
+            else:
+                efac = parameter.Constant(efac_start)
         if include_equad:
             equad = parameter.Uniform(-8.5, -5)
         if include_ecorr:
@@ -2908,13 +2979,13 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
             #Skip common rn terms
             if pulsars[i].name in par:
                 if 'ecorr' in par or 'efac' in par or 'equad' in par or 'log10_A' in par or 'gamma' in par:
-
                     #get indexes for each pulsar from overall pta params
                     psr_wn_indx.append(key_list.index(par))
 
         #append to overall list of lists
         per_puls_indx.append(psr_wn_indx)
         num_per_puls_param_list.append(len(psr_wn_indx))
+    print('Number of params per pulsar: ', num_per_puls_param_list)
 
     #Generate the lnPrior object for this PTA
     QB_FP = QB_FastPrior.FastPrior(pta, pulsars)
