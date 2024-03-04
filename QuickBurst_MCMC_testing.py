@@ -7,6 +7,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.linalg as sl
 import json
 import h5py
 
@@ -1440,6 +1441,10 @@ def fast_jump(n_chain, max_n_wavelet, max_n_glitch, FPI, QB_Info, samples, i, be
             #print("Nothing to vary!")
             continue
 
+        ####
+        #could potentialy add more agressive jumps drawing from the prior if acceptance is to high for these jumps
+        ####
+
         if what_to_vary == 'WAVE':
             wavelet_select = np.random.randint(n_wavelet)
             jump_select = np.random.randint(10)
@@ -2763,8 +2768,8 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
             #gets put into wavelets (at least I think that's how this will work) ~ Jacob
             '''
             #For now, set amplitude to median of per_psr_rn_amp_prior and gamma to 3.2 (max likelihood in 15yr GWB search)
-            log10_A = parameter.Constant(val = (per_psr_rn_log_amp_range[1]-per_psr_rn_log_amp_range[0])/2)
-            gamma = parameter.Constant(val = 3.2)
+            log10_A = parameter.Constant()
+            gamma = parameter.Constant()
 
         #This should be setting amplitude and gamma to default values
         pl = utils.powerlaw(log10_A=log10_A, gamma=gamma)
@@ -3096,44 +3101,98 @@ def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wav
 #MATCH CALCULATION ROUTINES
 #
 ################################################################################
-
-def get_similarity_matrix(pta, delays_list, noise_param_dict=None):
-
+#@profile
+def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
     if noise_param_dict is None:
         print('No noise dictionary provided!...')
     else:
         pta.set_default_params(noise_param_dict)
 
     #print(pta.summary())
-
-    phiinvs = pta.get_phiinv([], logdet=False)
+    phiinvs = pta.get_phiinv([], logdet=False, method = 'partition')
     TNTs = pta.get_TNT([])
     Ts = pta.get_basis()
+    #Using Nvecs due to the N matrix being diagonal. Only need vectors to compute inner products (Ecorr is in Sigma, not Nmat)
     Nvecs = pta.get_ndiag([])
-    Nmats = [ Fe_statistic.make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)]
-
+    #Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)] #call the Nmatt calc in Tau_scans_pta
+    #number of waveforms
     n_wf = len(delays_list)
+    #print('len(n_wf) : {}'.format(len(n_wf)))
 
     S = np.zeros((n_wf,n_wf))
-    for idx, (psr, Nmat, TNT, phiinv, T) in enumerate(zip(pta.pulsars, Nmats,
+    for idx, (psr, Nvec, TNT, phiinv, T) in enumerate(zip(pta.pulsars, Nvecs,
                                                           TNTs, phiinvs, Ts)):
-        Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
-
+        #Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+        sigmainv = np.linalg.pinv(TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv))
         for i in range(n_wf):
             for j in range(n_wf):
                 delay_i = delays_list[i][idx]
                 delay_j = delays_list[j][idx]
+                #print('nonzero values: ', np.count_nonzero(delay_i))
+                #print('size of delay_i, delay_j: {}, {}'.format(np.shape(delay_i), np.shape(delay_j)))
+
+                #Now mask to only include nonzero delays, which go from 0 (starting MJD) to max MJD (i.e. end of dataset)
+                masked_delay_i = np.copy(delay_i[0:len(psrs[idx].toas)])
+                masked_delay_j = np.copy(delay_j[0:len(psrs[idx].toas)])
+                #print('size of masked_delay_i, masked_delay_j: {}, {}'.format(np.shape(masked_delay_i), np.shape(masked_delay_j)))
+                #print('Checking nonzero values: {}, {}'.format(np.count_nonzero(masked_delay_i), np.count_nonzero(masked_delay_j)))
                 #print(delay_i)
                 #print(Nmat)
-                #print(Nmat, T, Sigma)
-                S[i,j] += Fe_statistic.innerProduct_rr(delay_i, delay_j, Nmat, T, Sigma)
+                #print(Nmat, T, Sigma)    Nvec, T, sigmainv, TNT, x, y
+                S[i,j] += innerprod(Nvec, T, sigmainv, TNT, masked_delay_i, masked_delay_j)
     return S
 
-def get_match_matrix(pta, delays_list, noise_param_dict=None):
-    S = get_similarity_matrix(pta, delays_list, noise_param_dict=noise_param_dict)
+def get_match_matrix(pta, psrs, delays_list, noise_param_dict=None):
+    S = get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=noise_param_dict)
 
     M = np.zeros(S.shape)
     for i in range(S.shape[0]):
         for j in range(S.shape[0]):
             M[i,j] = S[i,j]/np.sqrt(S[i,i]*S[j,j])
     return M
+
+
+
+################################################################################
+#
+#INNER PRODUCT ROUTINES (based on enterprise Fp_statistic)
+#
+################################################################################
+
+def get_xCy(Nvec, T, sigmainv, x, y):
+    """Get x^T C^{-1} y"""
+    TNx = Nvec.solve(x, left_array=T)
+    TNy = Nvec.solve(y, left_array=T)
+    xNy = Nvec.solve(y, left_array=x)
+    return xNy - TNx @ sigmainv @ TNy
+
+
+def get_TCy(Nvec, T, y, sigmainv, TNT):
+    """Get T^T C^{-1} y"""
+    TNy = Nvec.solve(y, left_array=T)
+    return TNy - TNT @ sigmainv @ TNy
+
+
+def innerprod(Nvec, T, sigmainv, TNT, x, y):
+    """Get the inner product between x and y"""
+    xCy = get_xCy(Nvec, T, sigmainv, x, y)
+    TCy = get_TCy(Nvec, T, y, sigmainv, TNT)
+    TCx = get_TCy(Nvec, T, x, sigmainv, TNT)
+    return xCy - TCx.T @ sigmainv @ TCy
+
+def make_Nmat(phiinv, TNT, Nvec, T):
+
+    Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
+    cf = sl.cho_factor(Sigma)
+    Nshape = np.shape(T)[0]
+
+    TtN = Nvec.solve(other = np.eye(Nshape),left_array = T)
+
+    #Put pulsar's autoerrors in a diagonal matrix
+    Ndiag = Nvec.solve(other = np.eye(Nshape),left_array = np.eye(Nshape))
+
+    expval2 = sl.cho_solve(cf,TtN)
+    #TtNt = np.transpose(TtN)
+
+    #An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
+    return Ndiag - np.dot(TtN.T,expval2)

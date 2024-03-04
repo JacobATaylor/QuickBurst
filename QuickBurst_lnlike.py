@@ -7,6 +7,7 @@ from numba.experimental import jitclass
 from numba.typed import List
 import scipy.linalg as sl
 from lapack_wrappers import solve_triangular
+import copy
 
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
@@ -857,7 +858,7 @@ class QuickBurst_info:
 
         self.glitch_pulsars = glitch_pulsars
 
-        self.prior_recovery=prior_recovery
+        self.prior_recovery = prior_recovery
 
     def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, glitch_pulsars):
         #loading in parameters for the class to hold onto
