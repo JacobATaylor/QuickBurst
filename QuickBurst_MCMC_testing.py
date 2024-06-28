@@ -35,8 +35,8 @@ import pickle
 import shutil
 import os
 
-import QuickBurst_lnlike_broken_speedups as Quickburst
-# import QuickBurst_lnlike as Quickburst
+# import QuickBurst_lnlike_broken_speedups as Quickburst
+import QuickBurst_lnlike as Quickburst
 import QB_FastPrior
 import line_profiler
 
