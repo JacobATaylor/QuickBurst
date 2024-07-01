@@ -1,4 +1,9 @@
-"""C 2023 Jacob, Rand, and Bence fast Burst likelihood"""
+"""
+C 2024 Jacob, Rand, and Bence fast Burst likelihood
+
+QuickBurst likelihood for generic GW burst searches.
+
+"""
 
 import numpy as np
 import numba as nb
@@ -657,7 +662,9 @@ def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglit
 #####
     #@njit(parallel=True,fastmath=True) #was left unjitted
 def resres_logdet_calc(Npsr, residuals, invTN, Ndiag, temp_logdetphi, chol_Sigma):
-    #generate arrays to store res|res and logdet(2*Pi*N) terms
+    '''
+    Function to calculate terms in (res|res) + log(2*pi*C) in likelihood.
+    '''
     rNr_loc = np.zeros(Npsr)
     logdet_array = np.zeros(Npsr)
     for i in range(Npsr):
@@ -677,6 +684,10 @@ def resres_logdet_calc(Npsr, residuals, invTN, Ndiag, temp_logdetphi, chol_Sigma
 ######
 @njit(fastmath=True,parallel=False)
 def get_sigmas_helper(pos, sigmas, glitch_pulsars, Npsr, Nwavelet, Nglitch, wavelet_prm, glitch_prm):
+    '''
+    Function to calculate coefficients for both GW signal wavelets and noise transient wavelets.
+
+    '''
     #coefficients for wavelets and glitches
     sigma = np.copy(sigmas)*0
 
@@ -734,6 +745,10 @@ def get_sigmas_helper(pos, sigmas, glitch_pulsars, Npsr, Nwavelet, Nglitch, wave
 #####
 @njit(fastmath=True,parallel=False)
 def likelihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Nglitch, NN, MMs):
+    '''
+    Numba jitted Function to use likelihood class attributes to calculate likelihood for a given MCMC sample.
+
+    '''
     #start calculating the LogLikelihood
     LogL = 0
     LogL += -1/2*resres_logdet
@@ -759,6 +774,7 @@ def likelihood_helper(sigma, glitch_pulsars, resres_logdet, Npsr, Nwavelet, Ngli
             ('wavelet_prm',nb.types.float64[:,::1]),('glitch_prm',nb.types.float64[:,::1]),('MMs',nb.types.float64[:,:,::1]),('NN',nb.types.float64[:,::1]),('prior_recovery',nb.boolean),
             ('glitch_indx',nb.types.float64[:,::1]),('wavelet_indx',nb.types.float64[:,::1]),('glitch_pulsars',nb.types.float64[::1]), ('sigmas', nb.types.float64[:,:,::1])])#nb.types.ListType(nb.types.int64[::1])
 class QuickBurst_info:
+    '''QuickBurst info Class to store parameters used in projection parameter updates.'''
     def __init__(self, Npsr, pos, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, sigmas, MMs, NN, prior_recovery, glitch_indx, wavelet_indx, glitch_pulsars):
         #loading in parameters for the class to hold onto
         self.Npsr = Npsr
@@ -783,7 +799,7 @@ class QuickBurst_info:
         self.prior_recovery = prior_recovery
 
     def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, glitch_pulsars):
-        #loading in parameters for the class to hold onto
+        '''Function to store parameters between projection parameter updates.'''
 
         self.resres_logdet = resres_logdet
         #max number of glitches and signals that can be handeled
@@ -800,6 +816,7 @@ class QuickBurst_info:
         self.glitch_pulsars = glitch_pulsars
 
     def get_lnlikelihood(self, x0):
+        '''Function to calculate the likelihood for projection parameter updates.'''
         if self.prior_recovery:
             return 1
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)

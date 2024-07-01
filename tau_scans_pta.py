@@ -1,9 +1,8 @@
-################################################################################
-#
-#TauScanPTA -- Produce Tau-scan time-frequency maps for PTA burst search
-#
-#Bence Bécsy (bencebecsy@montana.edu) -- 2020
-################################################################################
+"""
+C 2023 Jacob Taylor, Rand Burnette, and Bence Becsy fast Burst Tau Scan
+
+Functions for claculating informative step distributions over some shape parameters (Tau Scans)
+"""
 
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
@@ -32,8 +31,8 @@ class TauScan(object):
     """
 
     def __init__(self, psrs, params=None, pta=None):
-
-        if pta is None:
+        '''populate parameters and generate PTA if not provided'''
+        if pta is None: #generates simple PTA assuming noise dictionary
             print('Initializing the model...')
 
             efac = parameter.Constant()
@@ -91,30 +90,19 @@ class TauScan(object):
         tau_scan: value of tau-scan at given tau, t0, f0 (map can be produced by looping over these
         """
 
-        # phiinvs = self.pta.get_phiinv(self.params, logdet=False)
-        # TNTs = self.pta.get_TNT(self.params)
-        # Ts = self.pta.get_basis()
-
-        # if self.Nmats == None:
-        #     self.Nmats = self.get_Nmats()
-
         n_psr = len(self.psrs)
-
         tau_scan = 0
 
         for idx, (psr, Nvec, TNT, phiinv, T, sigmainv) in enumerate(zip(self.psrs, self.Nvecs,
                                              self.TNTs, self.phiinvs, self.Ts, self.chol_sigmainvs)):
-            #Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
 
             ntoa = len(psr.toas)
 
             wavelet_cos = MorletGaborWavelet(psr.toas-tref, 1.0, tau, f0, t0, 0.0)
             wavelet_sin = MorletGaborWavelet(psr.toas-tref, 1.0, tau, f0, t0, np.pi/2)
 
-            #(Nvec, T, sigmainv, TNT, x, y):
             cos_norm = np.sqrt(innerprod_cho(Nvec, T, sigmainv, wavelet_cos, wavelet_cos))
             sin_norm = np.sqrt(innerprod_cho(Nvec, T, sigmainv, wavelet_sin, wavelet_sin))
-            # print('Cos: {}, Sin: {}'.format(cos_norm, sin_norm))
             #catch for missing data
             if cos_norm==0.0:
                 cos_norm = 1.0
@@ -127,77 +115,7 @@ class TauScan(object):
             if tau_scan == np.nan:
                 print('Cos: {}, Sin: {}'.format(cos_norm, sin_norm))
         return tau_scan
-        #return cos_norm, sin_norm
 
-def MorletGaborWavelet(t, A, tau, f0, t0, phi0):
-    return A * np.exp(-(t-t0)**2/tau**2) * np.cos(2*np.pi*f0*(t-t0) + phi0)
-
-
-# def innerProduct_rr(x, y, Nmat, Tmat, Sigma, TNx=None, TNy=None, brave=False):
-#     """
-#         Compute inner product using rank-reduced
-#         approximations for red noise/jitter
-#         Compute: x^T N^{-1} y - x^T N^{-1} T \Sigma^{-1} T^T N^{-1} y
-#
-#         :param x: vector timeseries 1
-#         :param y: vector timeseries 2
-#         :param Nmat: white noise matrix
-#         :param Tmat: Modified design matrix including red noise/jitter
-#         :param Sigma: Sigma matrix (\varphi^{-1} + T^T N^{-1} T)
-#         :param TNx: T^T N^{-1} x precomputed
-#         :param TNy: T^T N^{-1} y precomputed
-#         :return: inner product (x|y)
-#         """
-#
-#     # white noise term
-#     Ni = Nmat
-#     xNy = np.dot(np.dot(x, Ni), y)
-#     Nx, Ny = np.dot(Ni, x), np.dot(Ni, y)
-#
-#     if TNx == None and TNy == None:
-#         TNx = np.dot(Tmat.T, Nx)
-#         TNy = np.dot(Tmat.T, Ny)
-#
-#     if brave:
-#         cf = sl.cho_factor(Sigma, check_finite=False)
-#         SigmaTNy = sl.cho_solve(cf, TNy, check_finite=False)
-#     else:
-#         cf = sl.cho_factor(Sigma)
-#         SigmaTNy = sl.cho_solve(cf, TNy)
-#
-#     ret = xNy - np.dot(TNx, SigmaTNy)
-#
-#     return ret
-
-# def get_xCy(Nvec, T, sigmainv, x, y):
-#     """Get x^T C^{-1} y"""
-#     TNx = Nvec.solve(x, left_array=T)
-#     TNy = Nvec.solve(y, left_array=T)
-#     xNy = Nvec.solve(y, left_array=x)
-#     return xNy - TNx @ sigmainv @ TNy
-#
-#
-# def get_TCy(Nvec, T, y, sigmainv, TNT):
-#     """Get T^T C^{-1} y"""
-#     TNy = Nvec.solve(y, left_array=T)
-#     return TNy - TNT @ sigmainv @ TNy
-#
-#
-# def innerprod(Nvec, T, sigmainv, TNT, x, y):
-#     """Get the inner product between x and y"""
-#     xCy = get_xCy(Nvec, T, sigmainv, x, y)
-#     #TCy = get_TCy(Nvec, T, y, sigmainv, TNT)
-#     #TCx = get_TCy(Nvec, T, x, sigmainv, TNT)
-#     return xCy # - TCx.T @ sigmainv @ TCy #this was double doing this operation
-
-
-def innerprod_cho(Nvec, T, cf, x, y):
-    TNx = Nvec.solve(x, left_array=T)
-    TNy = Nvec.solve(y, left_array=T)
-    xNy = Nvec.solve(y, left_array=x)
-
-    expval = sl.cho_solve(cf, TNy)
-    return xNy - TNx @ expval
 
 def make_Nmat(phiinv, TNT, Nvec, T):
 
@@ -211,10 +129,32 @@ def make_Nmat(phiinv, TNT, Nvec, T):
     Ndiag = Nvec.solve(other = np.eye(Nshape),left_array = np.eye(Nshape))
 
     expval2 = sl.cho_solve(cf,TtN)
-    #TtNt = np.transpose(TtN)
 
     #An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
     return Ndiag - np.dot(TtN.T,expval2)
+    
+
+def MorletGaborWavelet(t, A, tau, f0, t0, phi0): #functions used to construct signials and noise transients
+    return A * np.exp(-(t-t0)**2/tau**2) * np.cos(2*np.pi*f0*(t-t0) + phi0)
+
+
+def innerprod_cho(Nvec, T, cf, x, y):
+    """
+    Computes the inner product of two vectors x and y.
+    :param Nvec: n_diag from PTA
+    :param T: PTA get_basis
+    :param cf: sigma inverse calculated using Cholesky
+    :param x:left vector
+    :param y:right vector
+    :returns:
+    Inner product, xCy
+    """
+    TNx = Nvec.solve(x, left_array=T)
+    TNy = Nvec.solve(y, left_array=T)
+    xNy = Nvec.solve(y, left_array=x)
+
+    expval = sl.cho_solve(cf, TNy)
+    return xNy - TNx @ expval
 
 
 def make_tau_scan_map(TauScan, n_tau=5, f_min=None, f_max=None, t_min=None, t_max=None, tau_min=None, tau_max=None, tref=53000*86400):
