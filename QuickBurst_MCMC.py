@@ -1,9 +1,9 @@
-################################################################################
-#
-#BayesWavePTA -- Bayesian search for burst GW signals in PTA data based on the BayesWave algorithm
-#
-#Bence Bécsy (bencebecsy@montana.edu) -- 2020
-################################################################################
+"""
+C 2024 Jacob Taylor, Rand Burnette, and Bence Becsy fast Burst MCMC
+
+MCMC to utilize faster generic GW burst search likelihood.
+
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,7 +36,6 @@ import shutil
 import os
 
 import QuickBurst_lnlike as Quickburst
-# import QuickBurst_lnlike as Quickburst
 import QB_FastPrior
 import line_profiler
 
@@ -45,7 +44,7 @@ import line_profiler
 #MAIN MCMC ENGINE
 #
 ################################################################################
-def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_wavelet_prior='flat', n_wavelet_start='random', RJ_weight=2, glitch_RJ_weight=2,
+def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_wavelet_prior='flat', n_wavelet_start='random', RJ_weight=2, glitch_RJ_weight=2,
             regular_weight=2, noise_jump_weight=2, PT_swap_weight=2, T_ladder=None, T_dynamic=False, T_dynamic_nu=300, T_dynamic_t0=1000, PT_hist_length=100,
             tau_scan_proposal_weight=2, glitch_tau_scan_proposal_weight=2, tau_scan_file=None,
             prior_recovery=False, wavelet_amp_prior='uniform', rn_amp_prior='uniform', per_psr_rn_amp_prior='uniform',
@@ -165,6 +164,8 @@ def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n
         How many noise transient wavelets to start sampling with. ['random'] by default, which is a random draw between [0, max_n_glitch].
     :param t0_min:
         The minimum epoch time with reference to the beginning of the data set.
+    :param t0_max:
+        The maximum epoch time for the data set.
     :param glitch_tau_scan_file:
         Tau scan file containing tau scan proposal data for noise transient wavelet tau scan proposal jumps. If None, glitch_RJ_weight and
         glitch_tau_scan_proposal_weight must both be 0. [None] by default.
@@ -2410,6 +2411,87 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4
 #
 ################################################################################
 def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr = False, include_efac = False, wn_backend_selection=False, noisedict=None, include_rn=True, vary_rn=True, include_per_psr_rn=False, vary_per_psr_rn=False, max_n_wavelet=1, efac_start=1.0, rn_amp_prior='uniform', rn_log_amp_range=[-18,-11], rn_params=[-14.0,1.0], wavelet_amp_prior='uniform', wavelet_log_amp_range=[-18,-11], per_psr_rn_amp_prior='uniform', per_psr_rn_log_amp_range=[-18,-11], equad_range = [-8.5, -5], ecorr_range = [-8.5, -5], prior_recovery=False, max_n_glitch=1, glitch_amp_prior='uniform', glitch_log_amp_range=[-18, -11], t0_min=0.0, t0_max=10.0, f0_min=3.5e-9, f0_max=1e-7, tau_min=0.2, tau_max=5.0, TF_prior=None, use_svd_for_timing_gp=True, tref=53000*86400):
+    '''
+    Function to make PTA including deterministic models.
+
+    :returns pta, QB_FP (prior object), QB_FPI (prior info object), glitch_indx (noise transient parameter indexes),
+             wavelet_indx (GW signal wavelet parameter indexes), per_puls_indx (intrinsic pulsar noise indexes),
+             rn_indx (CURN parameter indexes), num_per_puls_param_list (number of params per pulsar)
+
+    :param pulsars:
+        Pulsar pickle file
+    :param vary_white_noise:
+        If True, vary any included WN models in PTA model. [False] by default.
+    :param include_equad:
+        If True, include equad WN models in PTA. Currently only works with t2equad. [False] by default.
+    :param include_ecorr:
+        If True, include correlated WN models in PTA. [False] by default.
+    :param include_efac:
+        If True, include efac WN models in PTA. [False] by default.
+    :param wn_backend_selection:
+        If True, use enterprise Selection based on backend. Usually use True for real data, False for simulated data. [False] by default.
+    :param noisedict:
+        Parameter noise dictionary for model parameters. Can be either a filepath or a dictionary. [None] by default.
+    :param include_rn:
+        If True, include CURN parameters in PTA model. If vary_rn = True, these parameters will be varied. [False] by default.
+    :param vary_rn:
+        If True, CURN parameters will be varied in PTA model. [False] by default.
+    :param include_per_psr_rn:
+        If True, intrinsic pulsar red noise models will be included in PTA. [False] by default.
+    :param vary_per_psr_rn:
+        If True, intrinsic pulsar red noise will be varied. [False] by default.
+    :param max_n_wavelet:
+        Maximum number of GW signal wavelets to include in PTA model.
+    :param efac_start: NOT YET IMPLEMENTED
+        If vary_white_noise = True, set initial sample for efac parameters to efac_start. [None] by default.
+    :param rn_amp_prior:
+        CURN amplitude prior. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
+    :param rn_log_amp_range:
+        CURN amplitude prior range. [-18, -11] by default.
+    :param rn_params:
+        If CURN parameters are fixed, rn_params will set the amplitude and spectral index. rn_params[0] sets
+        the amplitude, while rn_params[1] sets the spectral index. [-13.0, 1] by default.
+    :param wavelet_amp_prior:
+        GW signal wavelet prior on log10_h and log10_hcross. Choice can be ['uniform', 'log_uniform']. ['uniform'] by default.
+    :param wavelet_log_amp_range:
+        GW signal wavelet amplitude prior range. [-18, -11] by default.
+    :param per_psr_rn_amp_prior:
+        Intrinsic pulsar RN amplitude prior. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
+    :param per_psr_rn_log_amp_range:
+        Intrinsic pulsar RN amplitude prior range: [-18, -11] by default.
+    :param equad_range:
+        If include_equad = True and vary_equad = True, equad_range sets the prior bounds on equad parameters. [-8.5, 5] by default.
+    :param ecorr_range:
+        If include_ecorr = True and vary_ecorr = True, ecorr_range sets the prior bounds on ecorr parameters. [-8.5, 5] by default.
+    :param prior_recovery:
+        If True, return 1 for the likelihood for every step. Parameter recovery should return the specified priors. [False] by default.
+    :param max_n_glitch:
+        Max number of noise transient wavelets allowed in PTA model. [1] by default.
+    :param glitch_amp_prior:
+        Prior on noise transient wavelet amplitudes. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
+    :param glitch_log_amp_range:
+        Noise transient wavelet amplitude prior range. [-18, -11] by default.
+    :param t0_min:
+        The minimum epoch time with reference to the beginning of the data set.
+    :param t0_max:
+        The maximum epoch time for the data set.
+    :param f0_min:
+        Lower bound on GW signal wavelet and noise transient wavelet frequency in Hz. [3.5e-9] by default.
+    :param f0_max:
+        Upper bound on GW signal wavelet and noise transient wavelet frequency in Hz. [1e-7] by default.
+    :param tau_min:
+        Lower bound on GW signal wavelet and noise transient wavelet width in years. [0.2] by default.
+    :param tau_max:
+        Upper bound on GW signal wavelet and noise transient wavelet width in years. [5] by default.
+    :param TF_prior:
+        ...
+    :param use_svd_for_timing_gp:
+        If True, use SVD decomposition for timing model parameter matrix M. [True] by default.
+    :param tref:
+        Reference time for the beginning of the data set. Given in seconds. [50000*86400] by default. 
+    '''
+
+
     #setting up base model
 
     if vary_white_noise:

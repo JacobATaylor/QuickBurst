@@ -1,9 +1,9 @@
-################################################################################
-#
-#BayesWavePTA -- Bayesian search for burst GW signals in PTA data based on the BayesWave algorithm
-#
-#Bence Bécsy (bencebecsy@montana.edu) -- 2020
-################################################################################
+"""
+C 2024 Jacob Taylor, Rand Burnette, and Bence Becsy fast Burst MCMC
+
+MCMC to utilize faster generic GW burst search likelihood.
+
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,7 +45,7 @@ import line_profiler
 #MAIN MCMC ENGINE
 #
 ################################################################################
-def run_bhb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_wavelet_prior='flat', n_wavelet_start='random', RJ_weight=0, glitch_RJ_weight=0,
+def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_wavelet_prior='flat', n_wavelet_start='random', RJ_weight=0, glitch_RJ_weight=0,
             regular_weight=3, noise_jump_weight=3, PT_swap_weight=1, T_ladder=None, T_dynamic=False, T_dynamic_nu=300, T_dynamic_t0=1000, PT_hist_length=100,
             tau_scan_proposal_weight=0, tau_scan_file=None, prior_recovery=False, wavelet_amp_prior='uniform', rn_amp_prior='uniform', per_psr_rn_amp_prior='uniform',
             rn_log_amp_range=[-18,-11], per_psr_rn_log_amp_range=[-18,-11], wavelet_log_amp_range=[-18,-11],

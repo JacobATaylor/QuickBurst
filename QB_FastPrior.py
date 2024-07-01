@@ -1,6 +1,9 @@
-"""C 2021 Bence Becsy
-MCMC for CW fast likelihood (w/ Neil Cornish and Matthew Digman)
-Helpers for Getting Prior Draws"""
+"""
+C 2024 Jacob Taylor, Rand Burnette, and Bence Becsy fast Burst prior object
+
+MCMC to utilize faster generic GW burst search likelihood.
+
+"""
 
 import numpy as np
 #np.seterr(all='raise')
@@ -9,12 +12,6 @@ from numba import njit
 from numba.experimental import jitclass
 from numba.typed import List
 
-#import scipy as sc
-#from scipy.stats.uniform import uni_pdf
-#from scipy.stats.multivariate_normal import norm_pdf
-#from numba_stats import norm as norm_numba
-#from numba_stats import uniform as uniform_numba
-
 ################################################################################
 #
 #MY VERSION OF GETTING THE LOG PRIOR
@@ -22,8 +19,8 @@ from numba.typed import List
 ################################################################################
 class FastPrior:
     """helper class to set up information about priors"""
-    def __init__(self, pta, psrs):#, par_names_cw_ext):
-        """pta is an enterprise pta and par_names_cw_ext is a list of the extrinsic parameters"""
+    def __init__(self, pta, psrs):
+        """pta is an enterprise pta, and psrs is a list of pulsar objects."""
         self.pta = pta
         self.param_names = List(pta.param_names)
         uniform_pars = []
@@ -120,11 +117,6 @@ class FastPrior:
                     px_dist_lows.append(0.0)
 
         #special class attributes for wavelet/glitch terms
-        #self.wave_glitch_uniform_pars_ids = np.array(self.param_names.index(u_par) for u_par in uniform_pars], dtype='int')
-        print('wavelet le params: ',wave_lin_exp_pars)
-        print('wavelet le lows: ',wave_le_lows)
-        print('wavelet le highs: ',wave_le_highs)
-
 
         self.uniform_lows = np.array(uf_lows)
         self.uniform_highs = np.array(uf_highs)
@@ -345,22 +337,17 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         value = x0[par_id]
         if low>value or value>high:
             log_prior = -np.inf
-    #print('log_prior_1: ',log_prior)
 
     ##############
     #For checking glitch uniform priors are in prior range
     g = glitch_uf_par_ids.size
     for itrp in range(g):
         low = glitch_uf_lows[itrp]
-        #print('low:',low)
         high = glitch_uf_highs[itrp]
-        #print('high:',high)
         par_id = glitch_uf_par_ids[itrp]
         value = x0[par_id]
-        #print('value:',value)
         if low>value or value>high:
             log_prior = -np.inf
-    #print('log_prior_2: ',log_prior)
     #For checking wavelet uniform priors are in prior range
     w = wave_uf_par_ids.size
     for itrp in range(w):
@@ -370,7 +357,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
         value = x0[par_id]
         if low>value or value>high:
             log_prior = -np.inf
-    #print('log_prior_3: ',log_prior)
     #for uniform prior wavelet/glitch contributions
     #Calculate global contribution for a single set of uniform glitch params
     glitch_global_uniform = 0.
@@ -381,7 +367,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
             glitch_global_uniform += -np.log(high-low)
             #Count contribution for all glitches
         log_prior += glitch_global_uniform*n_glitch
-    #print('log_prior_4: ',log_prior)
 
     #Calculate global contribution for a single set of uniform wavelet params
     wave_global_uniform = 0.
@@ -392,7 +377,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
             wave_global_uniform += -np.log(high-low)
         #Count contribution for all wavelets
         log_prior += wave_global_uniform*n_wavelet
-    #print('log_prior_5: ',log_prior)
 
     #for linear exponential wavelet/glitch prior contributions
     #Calculate global contribution for all lin-exp glitch params (if any)
@@ -407,7 +391,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
 
             else:
                 log_prior += value*np.log(10)#from enterprise
-    #print('log_prior_6: ',log_prior)
 
     #Calculate global contribution for all lin-exp wavelet params (if any)
     if max_n_wavelet != 0:
@@ -438,7 +421,6 @@ def get_lnprior_helper(x0, uniform_par_ids, uniform_lows, uniform_highs,\
             high = wave_le_highs[itrp]
             wave_global_lin_exp += np.log(np.log(10))-np.log(10 ** high - 10 ** low)
         log_prior += wave_global_lin_exp*n_wavelet
-    #print('log_prior_7: ',log_prior)
     ################
 
     #loop through all other linear exponential parameters
@@ -608,18 +590,6 @@ def get_sample_full(n_par,FPI):
            ('wave_uf_highs', nb.float64[:]), ('wave_le_par_ids', nb.int64[:]), ('wave_le_lows', nb.float64[:]),\
            ('wave_le_highs', nb.float64[:]), ('n_wavelet', nb.int64), ('n_glitch', nb.int64), ('max_n_wavelet', nb.int64),\
            ('max_n_glitch', nb.int64)])
-           #####################
-           # 6/23: Things added:
-           # 1) Added all prior calculations to helper function (though we will want to run through it all to make sure it is correct)
-           # 2) Added parameters into prior info class, params should match between info class class and info __init__ function.
-           # 3) Added new params into prior helper function call in QuickBurst_MCMC (though, like all other calls, will need to make sure these are consistent
-           #    with params in info class and __init__ function.)
-           #6/23 TODO:
-           # 1) Check param types in jitclass param initializer thingy mabob
-           # 2) Make sure param order matches between FPI and FP classes, and params are referenced properly from function definition.
-           # 3) Run it??????
-           # ~ Jacob
-           ##############
 class FastPriorInfo:
     """simple jitclass to store the various elements of fast prior calculation in a way that can be accessed quickly from a numba environment"""
     def __init__(self, uniform_par_ids, uniform_lows, uniform_highs, lin_exp_par_ids, lin_exp_lows, lin_exp_highs, normal_par_ids, normal_mus, normal_sigs, dm_par_ids, dm_dists, dm_errs, px_par_ids, px_mus, px_errs, cut_par_ids, cut_lows, cut_highs, global_common,
