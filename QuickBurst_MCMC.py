@@ -63,7 +63,7 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
                 betas[:,::n_fast_to_slow] (temperatures for slow steps), PT_acc (acceptance rate for last PT_hist_length PT swaps)
 
     :param N_slow:
-        Number of slow parameter jumps to do in run.
+        Number of shape parameter updates to do in run.
     :param T_max:
         Max temperature allowed in Parallel Tempering (PT) chains.
     :param n_chain:
@@ -190,7 +190,7 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     :param n_fish_update:
         Number of N_slow samples between fisher matrix updates. [1000] by default.
     :param n_fast_to_slow:
-        Number of Fast parameter jumps for every N_slow step. [1000] by default.
+        Number of projection parameter updates for every shape parameter update. [1000] by default.
     :param thin:
         Spacing between saved samples. If 10, saves every 10th sample. [100] by default.
     """
@@ -2488,7 +2488,7 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
     :param use_svd_for_timing_gp:
         If True, use SVD decomposition for timing model parameter matrix M. [True] by default.
     :param tref:
-        Reference time for the beginning of the data set. Given in seconds. [50000*86400] by default. 
+        Reference time for the beginning of the data set. Given in seconds. [50000*86400] by default.
     '''
 
 
@@ -2823,6 +2823,22 @@ def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wav
 ################################################################################
 #@profile
 def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
+    """
+    Function to calculate all inner product combinations of delays_list.
+
+    :param pta:
+        Enterprise pta
+    :param psrs:
+        Pickled pulsar object
+    :param delays_list:
+        List of signals to calculate inner products between. Each element of delays_list should be shaped (N_psr, N_toa), where N_toa is the number of toas
+        for a particular pulsar.
+    :param noise_param_dict:
+        Noise dictionary used to set default pta parameter values. [None] by default.
+
+    :returns: Numpy array of shape (len(delays_list), len(delays_list)), where diagonal elements are inner products of the i^th list
+              with itself (SNR^2 for each), while off-diagonal are the match statistic (squared) of each signal with every other signal.
+    """
     if noise_param_dict is None:
         print('No noise dictionary provided!...')
     else:
@@ -2866,6 +2882,22 @@ def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
     return S
 
 def get_match_matrix(pta, psrs, delays_list, noise_param_dict=None):
+    """
+    Function to calculate all inner product combinations of delays_list.
+
+    :param pta:
+        Enterprise pta
+    :param psrs:
+        Pickled pulsar object
+    :param delays_list:
+        List of signals to calculate inner products between. Each element of delays_list should be shaped (N_psr, N_toa), where N_toa is the number of toas
+        for a particular pulsar.
+    :param noise_param_dict:
+        Noise dictionary used to set default pta parameter values. [None] by default.
+
+    :returns: Numpy array of shape (len(delays_list), len(delays_list)). Diagonal elements are inner products of the i^th list
+              with itself (SNR for each), while off-diagonal are the match statistic of each signal with every other signal.
+    """
     S = get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=noise_param_dict)
 
     M = np.zeros(S.shape)
@@ -2883,6 +2915,16 @@ def get_match_matrix(pta, psrs, delays_list, noise_param_dict=None):
 ################################################################################
 
 def innerprod_cho(Nvec, T, cf, x, y):
+    """
+    Computes the inner product of two vectors x and y.
+    :param Nvec: n_diag from PTA
+    :param T: PTA get_basis
+    :param cf: sigma inverse calculated using Cholesky
+    :param x:left vector
+    :param y:right vector
+    :returns:
+    Inner product, xCy
+    """
     TNx = Nvec.solve(x, left_array=T)
     TNy = Nvec.solve(y, left_array=T)
     xNy = Nvec.solve(y, left_array=x)
