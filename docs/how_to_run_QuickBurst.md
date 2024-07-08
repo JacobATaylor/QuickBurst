@@ -1,7 +1,11 @@
 # Quick-start guide to QuickBurst
 
 ## Setup
-First create new `conda` environment using the file `QuickBurst.yml`:
+First, clone the `QuickBurst` repo:
+```
+git clone https://github.com/JacobATaylor/QuickBurst
+```
+Next, create a new `conda` environment using the file `QuickBurst.yml` contained in your local repo:
 ```
 conda env create -f QuickBurst.yml
 ```
@@ -9,16 +13,12 @@ Activate our new environment:
 ```
 conda activate QuickBurst
 ```
-Clone the `QuickBurst` repo:
-```
-git clone https://github.com/JacobATaylor/QuickBurst
-```
 Move into the repo's folder:
 ```
 cd QuickBurst
 ```
 ## Running QuickBurst
-You will need a pickle file with the data you are planning to analyize, along with it's noise parameter file. Before performing a run, you will need to create tau scans to inform jumps over shape parameters. To do so, 
+You will need a pickle file with the data you are planning to analyize, along with it's noise parameter file. Before performing a run, you will need to create tau scans to inform jumps over shape parameters. To do so,
 * Open `make_tau_scan_proposals.ipynb`
 * Pass in your pickled pulsar object `data.pkl`.
 * Pass in your noise dictionary.
