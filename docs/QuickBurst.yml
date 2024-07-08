@@ -1,4 +1,4 @@
-name: ent
+name: QuickBurst
 channels:
   - conda-forge
   - intel
