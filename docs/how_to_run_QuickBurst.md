@@ -18,9 +18,9 @@ Move into the repo's folder:
 cd QuickBurst
 ```
 Install QuickBurst and all remaining requirements:
-'''
+```
 pip install -e .
-'''
+```
 
 ## Running QuickBurst
 You will need a pickle file with the data you are planning to analyize, along with it's noise parameter file. Before performing a run, you will need to create tau scans to inform jumps over shape parameters. To do so,
