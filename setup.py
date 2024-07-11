@@ -16,6 +16,5 @@ setup(
     ],
     python_requires='>=3.7',
     packages=find_packages(include=['QuickBurst']),
-    scripts=['QuickBurst.py'],
     long_description=open('README.md').read(),
     )
