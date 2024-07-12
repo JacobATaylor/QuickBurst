@@ -29,14 +29,14 @@ from enterprise_extensions import blocks
 
 from enterprise_extensions.frequentist import Fe_statistic
 
-import enterprise_wavelets as models
+from QuickBurst import enterprise_wavelets as models
 import pickle
 
 import shutil
 import os
 
-import QuickBurst_lnlike as Quickburst
-import QB_FastPrior
+from QuickBurst import QuickBurst_lnlike as Quickburst
+from QuickBurst import QB_FastPrior
 import line_profiler
 
 ################################################################################

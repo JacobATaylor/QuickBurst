@@ -11,7 +11,7 @@ from numba import njit,prange
 from numba.experimental import jitclass
 from numba.typed import List
 import scipy.linalg as sl
-from lapack_wrappers import solve_triangular
+from QuickBurst.lapack_wrappers import solve_triangular
 import copy
 
 from enterprise import constants as const
