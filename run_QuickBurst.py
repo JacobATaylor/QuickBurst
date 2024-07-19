@@ -27,18 +27,13 @@ from enterprise_extensions import sampler as ee_sampler
 from enterprise.signals.signal_base import LogLikelihood
 import enterprise_wavelets as models
 from enterprise.signals.parameter import function
-from la_forge.core import Core
-from la_forge.diagnostics import plot_chains
-from la_forge import rednoise
-import la_forge
-import corner
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 import re
 #style
 import cProfile
 
 
-import QuickBurst_MCMC as QuickBurst_MCMC
+from QuickBurst import QuickBurst_MCMC
 
 with open("/home/user/path_to/.../data.pkl", 'rb') as f:
     psrs = pickle.load(f)
@@ -76,16 +71,16 @@ n_fish_update = int(N_slow/2)
 projection_updates = 10000
 
 #Number of samples to thin (based on total samples N_slow*projection_updates)
-thinning = 100
+thinning = projection_updates
 
 T_max = 4 #2
 n_chain = 5 #3
 
 #Prior bounds on shape params
 tau_min = 0.2
-tau_max = 3.0 #5.0
+tau_max = 5.0 #3.0
 f_max = 1e-7
-f_min = 1e-8 #3.5e-9
+f_min = 3.5e-9 #1e-8
 
 #Load in tau scan proposal files
 ts_file = "/home/user/.../path_to/GW_signal_wavelet_tau_scan.pkl"
@@ -130,7 +125,7 @@ samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_a
                                                                     t0_max=t0_max,
                                                                     tref = tref,
                                                                     vary_white_noise=False,
-                                                                    include_rn=True, vary_rn=True,
+                                                                    include_rn=False, vary_rn=False,
                                                                     include_equad=True,
                                                                     include_ecorr=False,
                                                                     include_efac=True,

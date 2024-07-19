@@ -37,7 +37,6 @@ import os
 
 from QuickBurst import QuickBurst_lnlike as Quickburst
 from QuickBurst import QB_FastPrior
-import line_profiler
 
 ################################################################################
 #

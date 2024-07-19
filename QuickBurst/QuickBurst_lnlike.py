@@ -18,7 +18,6 @@ from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
 from enterprise.signals import utils
 
-import line_profiler
 
 #########
 #strucutre overview

@@ -1,17 +1,22 @@
 # Quick-start guide to QuickBurst
 
 ## Setup
-First, clone the `QuickBurst` repo:
+First, we advise creating a new `conda` environment:
 ```
-git clone https://github.com/JacobATaylor/QuickBurst
-```
-Next, create a new `conda` environment using the file `QuickBurst.yml` contained in your local repo:
-```
-conda env create -f QuickBurst.yml
+conda create --name QuickBurst python=3.9
 ```
 Activate our new environment:
 ```
 conda activate QuickBurst
+```
+Install enterprise:
+```
+conda install -c conda-forge enterprise-pulsar
+```
+
+Clone the `QuickBurst` repo:
+```
+git clone https://github.com/JacobATaylor/QuickBurst.git
 ```
 Move into the repo's folder:
 ```
