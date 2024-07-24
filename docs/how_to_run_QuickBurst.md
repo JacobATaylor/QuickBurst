@@ -25,6 +25,7 @@ cd QuickBurst
 Install QuickBurst and all remaining requirements:
 ```
 pip install -e .
+pip install -r requirements.txt
 ```
 
 ## Running QuickBurst
