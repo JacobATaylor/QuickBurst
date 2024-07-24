@@ -25,7 +25,7 @@ from enterprise_extensions import model_orfs
 from enterprise_extensions.frequentist import optimal_statistic as opt_stat
 from enterprise_extensions import sampler as ee_sampler
 from enterprise.signals.signal_base import LogLikelihood
-import enterprise_wavelets as models
+from QuickBurst import enterprise_wavelets as models
 from enterprise.signals.parameter import function
 from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
 import re
