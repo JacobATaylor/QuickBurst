@@ -9,7 +9,6 @@ from __future__ import (absolute_import, division,
 import numpy as np
 import scipy.linalg as sl
 import json
-from memory_profiler import profile
 
 import enterprise
 from enterprise.pulsar import Pulsar
