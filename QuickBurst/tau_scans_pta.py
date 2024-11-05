@@ -9,7 +9,6 @@ from __future__ import (absolute_import, division,
 import numpy as np
 import scipy.linalg as sl
 import json
-from memory_profiler import profile
 
 import enterprise
 from enterprise.pulsar import Pulsar
@@ -132,7 +131,7 @@ def make_Nmat(phiinv, TNT, Nvec, T):
 
     #An Ntoa by Ntoa noise matrix to be used in expand dense matrix calculations earlier
     return Ndiag - np.dot(TtN.T,expval2)
-    
+
 
 def MorletGaborWavelet(t, A, tau, f0, t0, phi0): #functions used to construct signials and noise transients
     return A * np.exp(-(t-t0)**2/tau**2) * np.cos(2*np.pi*f0*(t-t0) + phi0)
