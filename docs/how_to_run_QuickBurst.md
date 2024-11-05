@@ -9,9 +9,11 @@ Activate our new environment:
 ```
 conda activate QuickBurst
 ```
-Install enterprise:
+Install enterprise, La Forge, and Jupyter:
 ```
 conda install -c conda-forge enterprise-pulsar
+pip install Jupyter
+pip install la-forge
 ```
 
 Clone the `QuickBurst` repo:
