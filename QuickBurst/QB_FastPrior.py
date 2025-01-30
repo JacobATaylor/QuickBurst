@@ -60,7 +60,6 @@ class FastPrior:
         glitch_uniform_pars = []
         glitch_lin_exp_pars = []
         for par in self.pta.params:
-            #print(par)
             #Special treatment for glitch priors
             if 'Glitch' in str(par):
                 if "Uniform" in par._typename:

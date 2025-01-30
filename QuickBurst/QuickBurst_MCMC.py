@@ -200,8 +200,6 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     n_fish_update = n_fish_update*n_fast_to_slow
     save_every_n = save_every_n*n_fast_to_slow
 
-    print('Saving every {0} samples, total samples: {1} '.format(save_every_n, N), '\n')
-    print('Ending total saved samples: {}'.format(int(N/thin)), '\n')
 
     #If no wn or rn variance, shouldn't do any noise jumps
     if not vary_white_noise:
@@ -333,6 +331,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
         log_likelihood = np.zeros((n_chain,save_every_n+1))
         log_likelihood[:,0] = np.copy(log_likelihood_resume[:, -1])
 
+        print('Saving every {0} samples, total samples: {1} '.format(save_every_n, N+N_resume), '\n')
+        print('Ending total saved samples: {}'.format(int(N/thin)+N_resume), '\n')
 
         betas = np.ones((n_chain, save_every_n+1))
         betas[:,0] = np.copy(betas_resume[:, -1])
@@ -350,6 +350,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
             QB_logl.append(Quickburst.QuickBurst(pta = pta, psrs = pulsars, params = dict(zip(pta.param_names, first_sample)), Npsr = len(pulsars), tref=tref, Nglitch = n_glitch, Nwavelet = n_wavelet, Nglitch_max = max_n_glitch ,Nwavelet_max = max_n_wavelet, rn_vary = vary_rn, wn_vary = vary_white_noise, prior_recovery = prior_recovery))
             QB_Info.append(Quickburst.QuickBurst_info(Npsr=len(pulsars),pos = QB_logl[j].pos, resres_logdet = QB_logl[j].resres_logdet, Nglitch = n_glitch ,Nwavelet = n_wavelet, wavelet_prm = QB_logl[j].wavelet_prm, glitch_prm = QB_logl[j].glitch_prm, sigmas = QB_logl[j].sigmas, MMs = QB_logl[j].MMs, NN = QB_logl[j].NN, prior_recovery = prior_recovery, glitch_indx = QB_logl[j].glitch_indx, wavelet_indx = QB_logl[j].wavelet_indx, glitch_pulsars = QB_logl[j].glitch_pulsars))
     else:
+        print('Saving every {0} samples, total samples: {1} '.format(save_every_n, N), '\n')
+        print('Ending total saved samples: {}'.format(int(N/thin)), '\n')
         samples = np.zeros((n_chain, save_every_n+1, num_params))
 
         #set up log_likelihood array
@@ -468,7 +470,6 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
             print("Tau-scan data read in successfully!")
 
         tau_scan = tau_scan_data['tau_scan']
-        print(len(tau_scan))
 
         TAU_list = list(tau_scan_data['tau_edges'])
         F0_list = tau_scan_data['f0_edges']
@@ -502,7 +503,6 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
                     dtau = (TAU_list[idx+1]-TAU_list[idx])
                     norm += TTT[kk,ll]*df*dt*dtau
         tau_scan_data['norm'] = norm #TODO: Implement some check to make sure this is normalized over the same range as the prior range used in the MCMC
-        print(norm)
 
     #read in glitch_tau_scan data if we will need it
 
@@ -637,14 +637,11 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                         f['PT_acc'][:,-int((log_likelihood.shape[1]-1)/thin):] = PT_acc[:, :-1:thin]
                         f['acc_fraction'][...] = np.copy(acc_fraction)
                         f['swap_record'][-int((log_likelihood.shape[1]-1)/thin):] = np.copy(swap_record[:-1:thin])
-                        if (i == int(stop_iter)-1):
-                            print('LAST CHUNK! WEEEEEE!')
 
                 else:
-                    print('Path exists? ', os.path.exists(savepath))
-                    print('Resume_from == savefile?: ', resume_from == savefile)
                     #Creating h5df file at start of sampling if not resuming.
                     if resume_from is None:
+                        print('Writing file at {}'.format(savefile))
                         with h5py.File(savefile, 'w') as f:
                             f.create_dataset('samples_cold', data= samples[:,:-1:thin,:], compression="gzip", chunks=True, maxshape = (n_chain, None, samples.shape[2])) #maxshape=(n_chain,int(N/thin),samples.shape[2]))
                             f.create_dataset('log_likelihood', data=log_likelihood[:,:-1:thin], compression="gzip", chunks=True, maxshape = (n_chain, None)) #maxshape=(samples.shape[0],int(N/thin)))
@@ -670,9 +667,8 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                     else:
                         #If resuming from existing file, append to file.
                         with h5py.File(savefile, 'a') as f:
+                            print('Appending to file {}'.format(savefile))
                             #Create shape for samples
-                            print('samples shape:', f['samples_cold'].shape[1])
-                            print('samples.shape[1]', int(samples.shape[1]-1)/thin)
                             f['samples_cold'].resize((f['samples_cold'].shape[1] + int((samples.shape[1] - 1)/thin)), axis=1)
                             f['swap_record'].resize((f['swap_record'].shape[0] + int((swap_record.shape[0] - 1)/thin)), axis = 0)
                             f['betas'].resize((f['betas'].shape[1] + int((betas.shape[1] - 1)/thin)), axis=1)
@@ -783,7 +779,6 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                     # for various kinds of jumps by pulling out eigenvectors from Fisher Matrix for particular
                     # parameters that are being updated.
 
-                    #
                     #wavelet eigenvectors
                     if n_wavelet!=0:
                         eigenvectors = get_fisher_eigenvectors(np.copy(samples[j, i%save_every_n, 2:]), pta, QB_FP, QB_logl=QB_logl[j], T_chain=1/betas[j,i%save_every_n], n_sources=n_wavelet, array_index=wavelet_indx, flag = True)
@@ -820,7 +815,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                             #Add extra loop over pulsars in noise_jump to add together pulsar eigenvectors in jump
 
                             N_Noise_Params_changed = int(per_psr_eigvec[0].shape[0]/10) #tuning param for noise jumps
-                            print('N_Noise_Params_changed: ',N_Noise_Params_changed)
+                            print('Changing {} noise parameters per Noise Jump.'.format(N_Noise_Params_changed))
             #Approximation for eigenvectors (scale other eigenvectors by chain temps)
             if vary_per_psr_rn or vary_white_noise:
                 for j in range(n_chain):
@@ -835,7 +830,6 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
         #Do the actual MCMC step
         #
         ###########################################################
-        # print('iterable: ',i)
         if i%n_fast_to_slow==0:
             #draw a random number to decide which jump to do
             jump_decide = np.random.uniform()
@@ -962,7 +956,6 @@ def do_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_l
         new_point[wavelet_indx[wavelet_select,9]] = tau_new
 
         log_L = QB_logl[j].get_lnlikelihood(new_point)
-        #print('Wavelet tau scan QB logl: ', log_L)
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += QB_FastPrior.get_lnprior_helper(new_point, FPI.uniform_par_ids, FPI.uniform_lows, FPI.uniform_highs,\
                                                FPI.lin_exp_par_ids, FPI.lin_exp_lows, FPI.lin_exp_highs,\
@@ -1022,7 +1015,6 @@ def do_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_l
             samples[j,i+1,:] = samples[j,i,:]
             a_no[3,j]+=1
             log_likelihood[j,i+1] = log_likelihood[j,i]
-            #print("reject step")
             QB_logl[j].save_values(accept_new_step=False)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
 
@@ -1101,7 +1093,7 @@ def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FP
         new_point[glitch_indx[glitch_select,5]] = tau_new
 
         log_L = QB_logl[j].get_lnlikelihood(new_point)
-        #print('Glitch tau scan QB logl: ', log_L)
+        
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += QB_FastPrior.get_lnprior_helper(new_point, FPI.uniform_par_ids, FPI.uniform_lows, FPI.uniform_highs,\
                                                FPI.lin_exp_par_ids, FPI.lin_exp_lows, FPI.lin_exp_highs,\
@@ -1277,14 +1269,12 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                                                FPI.wave_le_highs, n_wavelet,n_glitch, \
                                                FPI.max_n_wavelet, FPI.max_n_glitch)
         if new_log_prior==-np.inf: #check if prior is -inf - reject step if it is
-            #print('Regular jump prior is infinite')
             samples[j,i+1,:] = samples[j,i,:]
             a_no[6,j] += 1
             log_likelihood[j,i+1] = log_likelihood[j,i]
             continue
 
         log_L = QB_logl[j].get_lnlikelihood(new_point, vary_red_noise = rn_changed, vary_white_noise = wn_changed)
-        #print('Regular jump QB log_l: ', log_L)
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += new_log_prior
         log_acc_ratio += -log_likelihood[j,i]*betas[j,i]
@@ -1328,7 +1318,6 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
 ################################################################################
 @njit(fastmath=True,parallel=False)
 def fast_jump(n_chain, max_n_wavelet, max_n_glitch, FPI, QB_Info, samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood):
-    #print("fast_jump")
     for j in range(n_chain):
         n_wavelet = int(samples[j,i,0])
         n_glitch = int(samples[j,i,1])
@@ -1597,7 +1586,6 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
                 QB_logl[j].save_values(accept_new_step=True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
             else:
-                #print('rejected')
                 samples[j,i+1,:] = samples[j,i,:]
                 a_no[2,j] += 1
                 log_likelihood[j,i+1] = log_likelihood[j,i]
@@ -1703,7 +1691,6 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
             acc_ratio *= n_wavelet_prior[int(n_wavelet)-1]/n_wavelet_prior[int(n_wavelet)]
 
             if np.random.uniform()<=acc_ratio:
-                #print('accepted')
                 samples[j,i+1,0] = n_wavelet-1
                 samples[j,i+1,1] = n_glitch
                 samples[j,i+1,2:] = new_point[:]
@@ -1713,7 +1700,6 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
                 #FPI.n_wavelet = n_wavelet-1
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
             else:
-                #print('rejected')
                 samples[j,i+1,:] = samples[j,i,:]
                 a_no[2,j] += 1
                 log_likelihood[j,i+1] = log_likelihood[j,i]
@@ -1827,9 +1813,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                 acc_ratio *= 2.0
             #accounting for n_glitch prior
             acc_ratio *= n_glitch_prior[int(n_glitch)+1]/n_glitch_prior[int(n_glitch)]
-            #print('acc_ratio: ', acc_ratio)
             if np.random.uniform()<=acc_ratio:
-                #print('accepted')
                 samples[j,i+1,0] = n_wavelet
                 samples[j,i+1,1] = n_glitch+1
                 samples[j,i+1,2:] = new_point[:]
@@ -1839,7 +1823,6 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                 QB_logl[j].save_values(accept_new_step=True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
             else:
-                #print('rejected')
                 samples[j,i+1,:] = samples[j,i,:]
                 a_no[0,j] += 1
                 log_likelihood[j,i+1] = log_likelihood[j,i]
@@ -1931,7 +1914,6 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
             acc_ratio *= n_glitch_prior[int(n_glitch)-1]/n_glitch_prior[int(n_glitch)]
 
             if np.random.uniform()<=acc_ratio:
-                #print('accepted')
                 samples[j,i+1,0] = n_wavelet
                 samples[j,i+1,1] = n_glitch-1
                 samples[j,i+1,2:] = new_point[:]
@@ -1940,7 +1922,6 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                 QB_logl[j].save_values(accept_new_step=True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
             else:
-                #print('rejected')
                 samples[j,i+1,:] = samples[j,i,:]
                 a_no[0,j] += 1
                 log_likelihood[j,i+1] = log_likelihood[j,i]
@@ -2038,7 +2019,6 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                                                FPI.wave_uf_highs, FPI.wave_le_par_ids,FPI.wave_le_lows, \
                                                FPI.wave_le_highs, n_wavelet,n_glitch, \
                                                FPI.max_n_wavelet, FPI.max_n_glitch)
-        # print('Noise jump subtracting previous likelihood*prior/Temp', log_acc_ratio)
         acc_ratio = np.exp(log_acc_ratio)
 
         if np.random.uniform()<=acc_ratio:
@@ -2054,7 +2034,6 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             samples[j,i+1,:] = samples[j,i,:]
             a_no[7,j]+=1
             log_likelihood[j,i+1] = log_likelihood[j,i]
-            #print("reject step")
             QB_logl[j].save_values(accept_new_step=False, vary_white_noise = vary_white_noise, vary_red_noise = vary_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
 
@@ -2111,7 +2090,6 @@ def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
 #
 ################################################################################
 def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-4, n_sources=1, dim=10, array_index=None, use_prior=False, flag = False, vary_intrinsic_noise = False, vary_white_noise = False, vary_psr_red_noise = False, vary_rn = False):
-    #print('FISHER STEP')
     n_source=n_sources # this needs to not be used for the non-wavelet/glitch indexing (set to 1)
     eig = []
     index_rows = len(array_index)
@@ -2503,7 +2481,6 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
             ecorr = parameter.Uniform(ecorr_range[0], ecorr_range[1])
 
     else:
-        #print('Constant efac!!')
         if include_efac:
             efac = parameter.Constant(efac_start)
         if include_equad:
@@ -2656,7 +2633,6 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
         else:
             pta_load = signal_base.PTA(model)
             pta_load.set_default_params(noisedict)
-            #print(pta_load.summary())
             if TF_prior is None:
                 pta = pta_load
             else:
@@ -2767,10 +2743,9 @@ def get_tf_prior_pta(pta, TF_prior, n_wavelet, prior_recovery=False):
             for i in range(n_wavelet):
                 t0 = x[8+10*i]
                 log10_f0 = x[3+10*i]
-                #print(t0, log10_f0)
                 t_idx = int( np.digitize(t0, TF_prior['t_bins']) )
                 f_idx = int( np.digitize(log10_f0, TF_prior['lf_bins']) )
-                #print((t_idx, f_idx))
+                
                 if (t_idx, f_idx) not in TF_prior['on_idxs']:
                     within_prior = False
             if within_prior:
@@ -2800,20 +2775,10 @@ def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wav
     if max_n_glitch != 0 and n_glitch != max_n_glitch:
         glitch_end = glitch_indx[max_n_glitch-1][5]+1
         glitch_start = glitch_indx[n_glitch][0]
-    #print('Range of parameters to delete: ', list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)), '\n')
     if params_slice:
-        #print('Remove params shape: ', np.shape(np.delete(samples, list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)))))
         return np.delete(samples, list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)))
     else:
         return np.delete(samples[j,i,2:], list(range(wave_start,wave_end))+list(range(glitch_start, glitch_end)))
-
-
-'''why'''
-# def get_n_wavelet(samples, j, i):
-#     return int(samples[j,i,0])
-#
-# def get_n_glitch(samples, j, i):
-#     return int(samples[j,i,1])
 
 ################################################################################
 #
@@ -2826,7 +2791,7 @@ def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
     Function to calculate all inner product combinations of delays_list.
 
     :param pta:
-        Enterprise pta
+        Enterprise pta object
     :param psrs:
         Pickled pulsar object
     :param delays_list:
@@ -2843,7 +2808,6 @@ def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
     else:
         pta.set_default_params(noise_param_dict)
 
-    #print(pta.summary())
     phiinvs = pta.get_phiinv([], logdet=False, method = 'partition')
     TNTs = pta.get_TNT([])
     Ts = pta.get_basis()
@@ -2852,7 +2816,6 @@ def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
     #Nmats = [make_Nmat(phiinv, TNT, Nvec, T) for phiinv, TNT, Nvec, T in zip(phiinvs, TNTs, Nvecs, Ts)] #call the Nmatt calc in Tau_scans_pta
     #number of waveforms
     n_wf = len(delays_list)
-    #print('len(n_wf) : {}'.format(len(n_wf)))
 
     S = np.zeros((n_wf,n_wf))
     for idx, (psr, Nvec, TNT, phiinv, T) in enumerate(zip(pta.pulsars, Nvecs,
@@ -2865,19 +2828,11 @@ def get_similarity_matrix(pta, psrs, delays_list, noise_param_dict=None):
             for j in range(n_wf):
                 delay_i = delays_list[i][idx]
                 delay_j = delays_list[j][idx]
-                #print('nonzero values: ', np.count_nonzero(delay_i))
-                # print('size of delay_i, delay_j: {}, {}'.format(np.shape(delay_i), np.shape(delay_j)))
-                #sdfsdfdsf
+
                 #Now mask to only include nonzero delays, which go from 0 (starting MJD) to max MJD (i.e. end of dataset)
                 masked_delay_i = np.copy(delay_i[0:len(psrs[idx].toas)])
                 masked_delay_j = np.copy(delay_j[0:len(psrs[idx].toas)])
-                #print('size of masked_delay_i, masked_delay_j: {}, {}'.format(np.shape(masked_delay_i), np.shape(masked_delay_j)))
-                #print('Checking nonzero values: {}, {}'.format(np.count_nonzero(masked_delay_i), np.count_nonzero(masked_delay_j)))
-                #print(delay_i)
-                #print(Nmat)
-                #print(Nmat, T, Sigma)    Nvec, T, sigmainv, TNT, x, y
                 S[i,j] += innerprod_cho(Nvec, T, cf_sigmainv, masked_delay_i, masked_delay_j)#innerprod(Nvec, T, sigmainv, TNT, masked_delay_i, masked_delay_j)
-        # print('sim matrix, ',S)
     return S
 
 def get_match_matrix(pta, psrs, delays_list, noise_param_dict=None):
