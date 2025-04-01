@@ -65,13 +65,18 @@ print(t0_max)
 N_slow=int(1e5)
 
 #How often to update fisher matrix proposals (based on shape parameter updates)
-n_fish_update = int(N_slow/2)
+n_fish_update = int(N_slow/10)
 
 #Ratio of projection parameter updates per shape parameter update
 projection_updates = 10000
 
+#Proposal weights (must sum to 1)
+DE_prob = 0.3
+fisher_prob = 0.6 
+prior_draw_prob = 0.1
+
 #Number of samples to thin (based on total samples N_slow*projection_updates)
-thinning = projection_updates
+thinning = 10000
 
 T_max = 4 #2
 n_chain = 5 #3
@@ -91,9 +96,9 @@ os.makedirs(filepath, exist_ok = True)
 savepath = filepath + "some_file_name" #NOTE: DO NOT ADD FILE EXTENSION
 
 samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_acc = QuickBurst_MCMC.run_qb(N_slow, T_max, n_chain, psrs,
-                                                                    max_n_wavelet=5,
-                                                                    min_n_wavelet=0,
-                                                                    n_wavelet_start=2,
+                                                                    max_n_wavelet=3,
+                                                                    min_n_wavelet=1,
+                                                                    n_wavelet_start=1,
                                                                     RJ_weight=2,
                                                                     glitch_RJ_weight=2,
                                                                     regular_weight=2,
@@ -101,12 +106,16 @@ samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_a
                                                                     PT_swap_weight=2,
                                                                     tau_scan_proposal_weight=2,
                                                                     glitch_tau_scan_proposal_weight=2,
+                                                                    DE_prob = DE_prob,
+                                                                    fisher_prob = fisher_prob,
+                                                                    prior_draw_prob = prior_draw_prob,
+                                                                    de_history_size = 5000,
                                                                     tau_scan_file=ts_file,
                                                                     glitch_tau_scan_file=glitch_ts_file,
                                                                     #gwb_log_amp_range=[-18,-15],
                                                                     rn_log_amp_range=[-18,-11],
                                                                     wavelet_log_amp_range=[-10.0,-5.0],
-                                                                    per_psr_rn_log_amp_range=[-18,-11],
+                                                                    per_psr_rn_log_amp_range=[-20,-11],
                                                                     #rn_params = [noise_params['gw_crn_log10_A'],noise_params['gw_crn_gamma']],
                                                                     prior_recovery=False,
                                                                     #gwb_amp_prior='log-uniform',
@@ -124,16 +133,16 @@ samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_a
                                                                     tau_min_in = tau_min,
                                                                     t0_max=t0_max,
                                                                     tref = tref,
-                                                                    vary_white_noise=False,
+                                                                    vary_white_noise=True,  
                                                                     include_rn=False, vary_rn=False,
                                                                     include_equad=True,
-                                                                    include_ecorr=False,
+                                                                    include_ecorr=True,
                                                                     include_efac=True,
-                                                                    wn_backend_selection=False,
-                                                                    noisedict= noise_params,
-                                                                    include_per_psr_rn=False,
-                                                                    vary_per_psr_rn=False,
-                                                                    #resume_from=savepath,
+                                                                    wn_backend_selection=True,
+                                                                    noisedict = noise_params,
+                                                                    include_per_psr_rn=True,
+                                                                    vary_per_psr_rn=True,
+                                                                    # resume_from=savepath,
                                                                     #per_psr_rn_start_file=RN_start_file,
                                                                     n_fish_update = n_fish_update,
                                                                     savepath=savepath, save_every_n=100,
