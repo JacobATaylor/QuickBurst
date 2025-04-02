@@ -404,12 +404,9 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
 
                 #Setting starting values based on M2A or noise run chain
                 if noisedict is not None:
-                    #print('Noise dict loaded: ',noisedict.keys())
                     #load in params from dictionary
                     for idx, param in enumerate(pta.param_names):
-                        #print('For working: ', param)
                         if param in noisedict.keys():
-                            #print('param_set: ',param)
                             samples[j, 0, 2+idx] = noisedict[param]
 
                 #set all wavelet gw sources to same sky location
@@ -897,7 +894,6 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
             #update de history after every shape parameter update
             if DE_prob > 0:
                 if i != int(stop_iter):
-                    # print('DE update at {} sample!'.format(i))
                     de_history = update_de_history(n_chain, samples, de_history, QB_FPI, num_params, i, de_history_size = de_history_size, n_fast_to_slow = n_fast_to_slow, save_every_n = save_every_n, thin_de = n_fast_to_slow)
 
 
@@ -2078,7 +2074,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             #Pick random pulsar
             pulsar_idx = np.random.randint(len(per_puls_indx))
             #Choose 10 random noise parameters
-            if len(per_puls_indx[pulsar_idx]) =< 5:
+            if len(per_puls_indx[pulsar_idx]) <= 5:
                 pulsar_noise_idxs = per_puls_indx[pulsar_idx]
             if len(per_puls_indx[pulsar_idx]) > 10:
                 #pick 5 random parameters for a pulsar
@@ -2103,7 +2099,6 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                                                FPI.max_n_wavelet, FPI.max_n_glitch)
 
         if new_log_prior==-np.inf: #check if prior is -inf - reject step if it is
-            # print('Noise step proposal is inf! Rejected!')
             samples[j,i+1,:] = samples[j,i,:]
             a_no[7,j] += 1
             log_likelihood[j,i+1] = log_likelihood[j,i]
@@ -2389,11 +2384,9 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-2
                     #calculate off-diagonal elements of the Hessian from a central finite element scheme
                     #note the minus sign compared to the regular Hessian
                     if len(QB_logl.psrs) == 1: #if only 1 pulsar, run this
-                        # print('only 1 pulsar, off diagonal fisher terms')
                         fisher[0,i+offset,j+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                         fisher[0,j+offset,i+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                     else: #else, run as normal
-                        # print('multiple pulsar, off diagonal fisher terms')
                         fisher[1,i+offset,j+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                         fisher[1,j+offset,i+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
         try:
@@ -3099,7 +3092,6 @@ def update_de_history(n_chain, samples, de_history, FPI, num_params, sample_idx,
     for j in range(n_chain):
         #Number of de history samples to update. Default is 1.
         n_de_update = n_fast_to_slow//thin_de
-        # print('n_de_update = {}'.format(n_de_update))
         for itrd in range(0,n_de_update):
             #itrn%save_every_n tracks how far you are into the current block of samples
             itrbd = sample_idx%save_every_n+itrd*thin_de
