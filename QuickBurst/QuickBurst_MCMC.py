@@ -883,7 +883,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability):
                 accept_jump_arr = noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, QB_logl, QB_Info,
                     samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs,
-                    num_noise_params, vary_white_noise, vary_rn, log_likelihood, wavelet_indx, glitch_indx, N_Noise_Params_changed, de_history, total_weight, DE_prob, fisher_prob, prior_draw_prob)
+                    num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, wavelet_indx, glitch_indx, N_Noise_Params_changed, de_history, total_weight, DE_prob, fisher_prob, prior_draw_prob)
             #jump to change glitch params
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability+glitch_tau_scan_proposal_probability):
                 accept_jump_arr = do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,  QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, vary_white_noise, num_noise_params, glitch_tau_scan_data, log_likelihood, wavelet_indx, glitch_indx)
@@ -2046,7 +2046,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
 
 def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                     samples, i, betas, a_yes, a_no, eig_per_psr, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs,
-                    num_noise_params, vary_white_noise, vary_rn, log_likelihood, wavelet_indx, glitch_indx, N_Noise_Params_changed, de_history, total_weight, DE_prob, fisher_prob, prior_draw_prob):
+                    num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, wavelet_indx, glitch_indx, N_Noise_Params_changed, de_history, total_weight, DE_prob, fisher_prob, prior_draw_prob):
 
     total_weight = (DE_prob + fisher_prob + prior_draw_prob)
 
@@ -2143,7 +2143,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             log_likelihood[j,i+1] = log_likelihood[j,i]
             continue
 
-        log_L = QB_logl[j].get_lnlikelihood(new_point, vary_white_noise = vary_white_noise, vary_red_noise = vary_rn)
+        log_L = QB_logl[j].get_lnlikelihood(new_point, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
 
         log_acc_ratio = log_L*betas[j,i]
         log_acc_ratio += new_log_prior
@@ -2179,7 +2179,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                 a_yes[9,j]+=1
             log_likelihood[j,i+1] = log_L
 
-            QB_logl[j].save_values(accept_new_step=True, vary_white_noise = vary_white_noise, vary_red_noise = vary_rn)
+            QB_logl[j].save_values(accept_new_step=True, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
         
             accept_jump_arr[j] = 1
@@ -2196,7 +2196,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             if which_jump == 2:
                 a_no[9,j]+=1
             log_likelihood[j,i+1] = log_likelihood[j,i]
-            QB_logl[j].save_values(accept_new_step=False, vary_white_noise = vary_white_noise, vary_red_noise = vary_rn)
+            QB_logl[j].save_values(accept_new_step=False, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
     return accept_jump_arr
 
