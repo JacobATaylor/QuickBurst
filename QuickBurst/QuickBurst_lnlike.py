@@ -4,7 +4,7 @@ C 2024 Jacob, Rand, and Bence fast Burst likelihood
 QuickBurst likelihood for generic GW burst searches.
 
 """
-
+from __future__ import division
 import numpy as np
 import numba as nb
 from numba import njit,prange
@@ -715,6 +715,9 @@ def get_sigmas_helper(pos, sigmas, glitch_pulsars, Npsr, Nwavelet, Nglitch, wave
                 n_pos += n[g,j]*pos[i,j]
                 cosMu -= omhat[g,j]*pos[i,j]
 
+            #Numerical stability check
+            if isclose(1, cosMu):
+                cosMu = 1-1e-6
 
             #Calculating the antenna response for the + and x GW modes. There is
             #a different response for each wavelet, so we compute a new antenna pattern for each.
@@ -739,6 +742,18 @@ def get_sigmas_helper(pos, sigmas, glitch_pulsars, Npsr, Nwavelet, Nglitch, wave
                 sigma[i,Nwavelet + k,1] = -glitch_prm[k,1]*np.sin(glitch_prm[k,2])
     return sigma
 
+@njit()
+def isclose(a,b,rtol=1.e-5,atol=1.e-8):
+    """check if close in same way as np.isclose
+
+    :param a:       First float to use in comparison
+    :param b:       Second float to use in comparison
+    :param rtol:    Realtive tolerance - default:1e-5
+    :param atol:    Absolute tolerance - default:1e-8
+
+    :return:        True/False indicating if a and b are close to each other
+    """
+    return np.abs(a - b) <= (atol + rtol * np.abs(b))
 #####
 #Calculate wavelet and glitch contributions to the likelihood
 #####
