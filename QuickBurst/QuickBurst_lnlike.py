@@ -17,8 +17,8 @@ import copy
 from enterprise import constants as const
 from enterprise_extensions.frequentist import Fe_statistic as FeStat
 from enterprise.signals import utils
-
-
+import sys
+import logging
 #########
 #strucutre overview
 #
@@ -54,6 +54,9 @@ class QuickBurst:
         :param prior_recovery:
             If True, we return constant likelihood to be used for prior recovery diagnostic tests. [False] by default.
         """
+
+        self.qb_logger = logging.getLogger('QB_logger')
+        
         #model parameters that shouldn't change for a run
         self.pta = pta
         self.psrs = psrs
@@ -99,9 +102,14 @@ class QuickBurst:
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             self.CholSigma.append(chol_Sigma)
 
-        self.CholSigma_previous = np.copy(self.CholSigma)
-        self.invTN_previous = np.copy(self.invTN)
-        self.Ndiag_previous = np.copy(self.Ndiag)
+        #CHANGED 6/25/25: Was self.CholSigma_previous = np.copy(self.CholSigma)
+            #Now is: self.CholSigma_previosu = [np.copy(x) for x in self.CholSigma]
+        # self.CholSigma_previous = np.copy(self.CholSigma)
+        # self.invTN_previous = np.copy(self.invTN)
+        # self.Ndiag_previous = np.copy(self.Ndiag)
+        self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
+        self.invTN_previous = [np.copy(x) for x in self.invTN]
+        self.Ndiag_previous = [np.copy(x) for x in self.Ndiag]
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
         self.rn_vary = rn_vary
@@ -202,9 +210,12 @@ class QuickBurst:
         #Save previous M and N states
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
-        self.CholSigma_previous = np.copy(self.CholSigma)
-        self.invTN_previous = np.copy(self.invTN)
-        self.Ndiag_previous = np.copy(self.Ndiag)
+        # self.CholSigma_previous = np.copy(self.CholSigma)
+        # self.invTN_previous = np.copy(self.invTN)
+        # self.Ndiag_previous = np.copy(self.Ndiag)
+        self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
+        self.invTN_previous = [np.copy(x) for x in self.invTN]
+        self.Ndiag_previous = [np.copy(x) for x in self.Ndiag]
 
         #Need to make sure we update inverse cholesky matrix when in the edge case of 0 wavelets and 0 glitches
         #Cholesky matrix changes when we add wavelets/glitches, but still doesn't trigger when varying noise in this case.
@@ -215,7 +226,11 @@ class QuickBurst:
             self.params_previous = np.copy(self.params)
             self.params = d0
 
-            _ = self.TN_calculator()
+            try:
+                _ = self.TN_calculator()
+            except sl.LinAlgError as e:
+                self.qb_logger.error({e}, exc_info=True)
+                return (-1.0)*np.inf
 
         self.glitch_pulsars_previous = np.copy(self.glitch_pulsars)
         if glitch_change:
@@ -431,13 +446,20 @@ class QuickBurst:
         #if we have new shape parameters, find the NN and MM matricies from filter functions
         self.NN_previous = np.copy(self.NN)
         self.MMs_previous = np.copy(self.MMs)
-        self.CholSigma_previous = np.copy(self.CholSigma)
-        self.invTN_previous = np.copy(self.invTN)
-        self.Ndiag_previous = np.copy(self.Ndiag)
+        # self.CholSigma_previous = np.copy(self.CholSigma)
+        # self.invTN_previous = np.copy(self.invTN)
+        # self.Ndiag_previous = np.copy(self.Ndiag)
+        self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
+        self.invTN_previous = [np.copy(x) for x in self.invTN]
+        self.Ndiag_previous = [np.copy(x) for x in self.Ndiag]
 
         #If varying any noise, recalculate all of M and N
         if self.rn_vary  or self.wn_vary:
-            temp_logdetphi = self.TN_calculator()
+            try:
+                temp_logdetphi = self.TN_calculator()
+            except sl.LinAlgError as e:
+                self.qb_logger.error({e}, exc_info=True)
+                return (-1.0)*np.inf
             dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
             self.NN_previous = np.copy(self.NN)
@@ -457,7 +479,6 @@ class QuickBurst:
             self.resres_logdet = np.copy(resres_logdet)
         else:
             resres_logdet = np.copy(self.resres_logdet)
-        #calls jitted function that compiles all likelihood contributions
         temp_like = likelihood_helper(self.sigmas, self.glitch_pulsars, resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
         #If fisher calculations, do not need to save params
         if self.no_step:
@@ -482,7 +503,8 @@ class QuickBurst:
             if vary_red_noise or vary_white_noise:
                 self.params = np.copy(self.params_previous)
                 self.resres_logdet = np.copy(self.resres_logdet_previous)
-                self.Ndiag = list(np.copy(self.Ndiag_previous))
+                # self.Ndiag = list(np.copy(self.Ndiag_previous))
+                self.Ndiag = list([np.copy(x) for x in self.Ndiag_previous])
             if vary_white_noise:
                 self.Nvecs = np.copy(self.Nvecs_previous)
                 self.TNTs = np.copy(self.TNTs_previous)
@@ -492,9 +514,11 @@ class QuickBurst:
 
             self.sigmas = np.copy(self.sigmas_previous)
 
-            self.CholSigma = list(np.copy(self.CholSigma_previous))
-            self.invTN = list(np.copy(self.invTN_previous))
+            # self.CholSigma = list(np.copy(self.CholSigma_previous))
+            # self.invTN = list(np.copy(self.invTN_previous))
 
+            self.CholSigma_previous = list([np.copy(x) for x in self.CholSigma])
+            self.invTN_previous = list([np.copy(x) for x in self.invTN])
             self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
             if rj_jump:
                 #Resave number of glitches and wavelets
@@ -812,6 +836,7 @@ class QuickBurst_info:
 
         self.prior_recovery = prior_recovery
 
+
     def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, glitch_pulsars):
         '''Function to store parameters between projection parameter updates.'''
 
@@ -834,7 +859,10 @@ class QuickBurst_info:
         if self.prior_recovery:
             return 1
         self.glitch_prm, self.wavelet_prm = get_parameters(x0, self.glitch_prm, self.wavelet_prm, self.glitch_indx, self.wavelet_indx, self.Nglitch, self.Nwavelet)
+        
         #fast calculation of the lnlikelihood
         self.sigmas = get_sigmas_helper(self.pos, self.sigmas, self.glitch_pulsars, self.Npsr, self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm)
         temp_like = likelihood_helper(self.sigmas, self.glitch_pulsars, self.resres_logdet, self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
-        return temp_like
+        return temp_like #likelihood_helper(self.sigmas, self.glitch_pulsars, self.resres_logdet, 
+                                 #self.Npsr, self.Nwavelet, self.Nglitch, self.NN, self.MMs)
+

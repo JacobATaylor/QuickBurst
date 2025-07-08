@@ -38,6 +38,7 @@ import os
 from QuickBurst import QuickBurst_lnlike as Quickburst
 from QuickBurst import QB_FastPrior
 
+
 ################################################################################
 #
 #MAIN MCMC ENGINE
@@ -403,7 +404,7 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
                 samples[j,0,1] = n_glitch
                 QB_FPI.n_wavelet = n_wavelet #reset prior values after getting starting point
                 QB_FPI.n_glitch = n_glitch
-                samples[j,0,2:] =  np.hstack(p.sample() for p in pta.params)
+                samples[j,0,2:] =  np.hstack([p.sample() for p in pta.params])
 
                 #Setting starting values based on M2A or noise run chain
                 if noisedict is not None:
@@ -906,8 +907,8 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
         else:
             #For fast jumps, can't have wavelet_indx[i, 3, 8, 9] or glitch_indx[i, 0, 3, 4, 5] Otherwise M and N gets recalculated
             #Note: i%save_every_n will be 1 through 9 when i%n_fast_to_slow != 0.
-            fast_jump(n_chain, max_n_wavelet, max_n_glitch, QB_FPI, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood)
 
+            fast_jump(n_chain, max_n_wavelet, max_n_glitch, QB_FPI, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, eig_glitch, eig_rn, num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx, log_likelihood)
 
     acc_fraction = a_yes/(a_no+a_yes)
 
@@ -1219,6 +1220,7 @@ def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,
 
             QB_logl[j].save_values(accept_new_step=False)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
+   
     return accept_jump_arr
 
 ################################################################################
@@ -1382,6 +1384,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
 
             QB_logl[j].save_values(accept_new_step=False, vary_red_noise = rn_changed, vary_white_noise = wn_changed)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
+
     return accept_jump_arr
 
 ################################################################################
@@ -1845,7 +1848,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                 log_f0_new = np.random.uniform(low=log_f0_min, high=log_f0_max)
                 t0_new = np.random.uniform(low=t0_min, high=t0_max)
                 tau_new = np.random.uniform(low=tau_min, high=tau_max)
-
+                # print('glitch rj add tau min, tau_max: {}'.format(tau_min, tau_max))
                 tau_idx = np.digitize(tau_new, np.array(TAU_list)) - 1
                 f0_idx = np.digitize(10**log_f0_new, np.array(F0_list[tau_idx])) - 1
                 t0_idx = np.digitize(t0_new, np.array(T0_list[tau_idx])/(365.25*24*3600)) - 1
@@ -1923,7 +1926,6 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
 
                 QB_logl[j].save_values(accept_new_step=True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
-
                 accept_jump_arr[j] = 1
             else:
                 samples[j,i+1,:] = samples[j,i,:]
@@ -1931,6 +1933,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                 log_likelihood[j,i+1] = log_likelihood[j,i]
                 QB_logl[j].save_values(accept_new_step=False, rj_jump = True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
+
 
         elif n_glitch==max_n_glitch or (direction_decide>add_prob and n_glitch!=0):   #removing a glitch----------------------------------------------------------
             #choose which glitch to remove
@@ -2036,6 +2039,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
 
                 QB_logl[j].save_values(accept_new_step=False, rj_jump = True)
                 QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
+
     return accept_jump_arr
 
 ################################################################################
@@ -2073,13 +2077,11 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             if vary_white_noise and not vary_per_psr_rn:
                 ndim = sum(len(pulsar_wn) for pulsar_wn in per_puls_wn_indx)
                 white_noise_idxs = [wn_idxs for psr_wn in per_puls_wn_indx for wn_idxs in psr_wn]
-                print('noise jump white_noise_idxs: {}'.format(white_noise_idxs))
                 new_point = DE_proposal(j, samples_current, de_history, white_noise_idxs, ndim)
 
             if vary_per_psr_rn and not vary_white_noise:
                 ndim = sum(len(pulsar_rn) for pulsar_rn in per_puls_rn_indx)
                 red_noise_idxs = [rn_idxs for psr_rn in per_puls_rn_indx for rn_idxs in psr_rn]
-                print('noise jump red_noise_idxs: {}'.format(red_noise_idxs))
                 new_point = DE_proposal(j, samples_current, de_history, red_noise_idxs, ndim)
 
         elif which_jump == 1:
@@ -2181,7 +2183,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
 
             QB_logl[j].save_values(accept_new_step=True, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
-        
+
             accept_jump_arr[j] = 1
 
         else:
@@ -2198,6 +2200,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             log_likelihood[j,i+1] = log_likelihood[j,i]
             QB_logl[j].save_values(accept_new_step=False, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
+    
     return accept_jump_arr
 
 ################################################################################
@@ -2883,7 +2886,7 @@ def get_pta(pulsars, vary_white_noise=True, include_equad = False, include_ecorr
         rn_indx[0] = key_list.index('gw_crn_gamma')
         rn_indx[1] = key_list.index('gw_crn_log10_A')
 
-
+    # print(pta.summary())
     return pta, QB_FP, QB_FPI, glitch_indx, wavelet_indx, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, rn_indx, all_noiseparam_idxs, num_per_puls_param_list
 
 ################################################################################
@@ -2946,7 +2949,7 @@ def get_tf_prior_pta(pta, TF_prior, n_wavelet, prior_recovery=False):
 ################################################################################
 
 def remove_params(samples, j, i, wavelet_indx, glitch_indx, n_wavelet, max_n_wavelet, n_glitch, max_n_glitch, params_slice = False):
-    #"Special" indexing for handling dumb edge cases when max_n_wavelet = n_wavelet or max_n_glitch = n_glitch
+    #"Special" indexing for handling edge cases when max_n_wavelet = n_wavelet or max_n_glitch = n_glitch
     #If at max, offset index by 1.
     wave_start = 0
     wave_end = 0
