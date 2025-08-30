@@ -2075,13 +2075,13 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                 new_point = DE_proposal(j, samples_current, de_history, all_noiseparam_idxs, ndim)
 
             if vary_white_noise and not vary_per_psr_rn:
-                ndim = sum(len(pulsar_wn) for pulsar_wn in per_puls_wn_indx)
-                white_noise_idxs = [wn_idxs for psr_wn in per_puls_wn_indx for wn_idxs in psr_wn]
+                ndim = sum(len([pulsar_wn]) for pulsar_wn in per_puls_wn_indx)
+                white_noise_idxs = [wn_idxs for psr_wn in per_puls_wn_indx for wn_idxs in [psr_wn]]
                 new_point = DE_proposal(j, samples_current, de_history, white_noise_idxs, ndim)
 
             if vary_per_psr_rn and not vary_white_noise:
-                ndim = sum(len(pulsar_rn) for pulsar_rn in per_puls_rn_indx)
-                red_noise_idxs = [rn_idxs for psr_rn in per_puls_rn_indx for rn_idxs in psr_rn]
+                ndim = sum(len([pulsar_rn]) for pulsar_rn in per_puls_rn_indx)
+                red_noise_idxs = [rn_idxs for psr_rn in per_puls_rn_indx for rn_idxs in [psr_rn]]
                 new_point = DE_proposal(j, samples_current, de_history, red_noise_idxs, ndim)
 
         elif which_jump == 1:

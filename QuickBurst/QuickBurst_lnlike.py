@@ -103,7 +103,7 @@ class QuickBurst:
             self.CholSigma.append(chol_Sigma)
 
         #CHANGED 6/25/25: Was self.CholSigma_previous = np.copy(self.CholSigma)
-            #Now is: self.CholSigma_previosu = [np.copy(x) for x in self.CholSigma]
+            #Now is: self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
         # self.CholSigma_previous = np.copy(self.CholSigma)
         # self.invTN_previous = np.copy(self.invTN)
         # self.Ndiag_previous = np.copy(self.Ndiag)
@@ -517,8 +517,8 @@ class QuickBurst:
             # self.CholSigma = list(np.copy(self.CholSigma_previous))
             # self.invTN = list(np.copy(self.invTN_previous))
 
-            self.CholSigma_previous = list([np.copy(x) for x in self.CholSigma])
-            self.invTN_previous = list([np.copy(x) for x in self.invTN])
+            self.CholSigma = list([np.copy(x) for x in self.CholSigma_previous])
+            self.invTN = list([np.copy(x) for x in self.invTN_previous])
             self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
             if rj_jump:
                 #Resave number of glitches and wavelets
