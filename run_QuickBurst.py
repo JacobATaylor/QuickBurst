@@ -57,7 +57,7 @@ for psr in psrs:
 #Sets reference time
 tref = minimum
 
-t0_max = (maximum - minimum)/365/24/3600
+t0_max = (maximum - minimum)/365.25/24/3600
 print(t0_max)
 
 
