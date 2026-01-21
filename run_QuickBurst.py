@@ -94,6 +94,7 @@ glitch_ts_file = "/home/user/.../path_to/noise_transient_tau_scan.pkl"
 filepath = "/home/user/.../save_dir/"
 os.makedirs(filepath, exist_ok = True)
 savepath = filepath + "some_file_name" #NOTE: DO NOT ADD FILE EXTENSION
+config_file_name = "config"
 
 samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_acc = QuickBurst_MCMC.run_qb(N_slow, T_max, n_chain, psrs,
                                                                     max_n_wavelet=3,
@@ -146,4 +147,7 @@ samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_a
                                                                     #per_psr_rn_start_file=RN_start_file,
                                                                     n_fish_update = n_fish_update,
                                                                     savepath=savepath, save_every_n=100,
-                                                                    n_fast_to_slow=projection_updates, thin = thinning)
+                                                                    n_fast_to_slow=projection_updates, thin = thinning,
+                                                                    write_run_parameters_to_file=True,
+                                                                    run_configuration_directory=filepath,
+                                                                    run_configuration_file=config_file_name)
