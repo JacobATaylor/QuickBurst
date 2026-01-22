@@ -214,6 +214,65 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     for psr in pulsars:
         psr_names.append(psr.name)
 
+
+    #If no wn or rn variance, shouldn't do any noise jumps
+    if not vary_white_noise:
+        if not vary_per_psr_rn:
+            noise_jump_weight = 0
+    if TF_prior_file is None:
+        TF_prior = None
+    else:
+        with open(TF_prior_file, 'rb') as f:
+            TF_prior = pickle.load(f)
+    pta, QB_FP, QB_FPI, glitch_indx, wavelet_indx, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, rn_indx, all_noiseparam_idxs, num_per_puls_param_list = get_pta(pulsars, vary_white_noise=vary_white_noise, include_equad=include_equad,
+                                                                                                    include_ecorr = include_ecorr, include_efac = include_efac,
+                                                                                                    wn_backend_selection=wn_backend_selection,noisedict=noisedict, include_rn=include_rn, vary_rn=vary_rn,
+                                                                                                    include_per_psr_rn=include_per_psr_rn, vary_per_psr_rn=vary_per_psr_rn,
+                                                                                                    max_n_wavelet=max_n_wavelet, efac_start=efac_start, rn_amp_prior=rn_amp_prior,
+                                                                                                    rn_log_amp_range=rn_log_amp_range, rn_params=rn_params, per_psr_rn_amp_prior=per_psr_rn_amp_prior,
+                                                                                                    per_psr_rn_log_amp_range=per_psr_rn_log_amp_range, equad_range = equad_range,
+                                                                                                    wavelet_amp_prior=wavelet_amp_prior, ecorr_range = ecorr_range,
+                                                                                                    wavelet_log_amp_range=wavelet_log_amp_range, prior_recovery=prior_recovery,
+                                                                                                    max_n_glitch=max_n_glitch, glitch_amp_prior=glitch_amp_prior, glitch_log_amp_range=glitch_log_amp_range,
+                                                                                                    t0_min=t0_min, t0_max=t0_max, f0_min=f0_min, f0_max=f0_max, tau_min=tau_min_in, tau_max=tau_max_in,
+                                                                                                    TF_prior=TF_prior, tref=tref)
+
+
+    print('all noise param indexes: {}'.format(all_noiseparam_idxs))
+    if n_chain < 2:
+        print('Not enough chains for DE jumps. Make sure to set n_chain to 2 or more chains. Setting DE_prob = 0.')
+        DE_prob = 0
+
+    print('Number of pta params: ', len(pta.params))
+    #setting up temperature ladder
+    if n_chain > 1:
+        if T_ladder is None:
+            #using geometric spacing
+            c = T_max**(1.0/(n_chain-1))
+            Ts = c**np.arange(n_chain)
+
+            #make highest temperature inf if dynamic T ladder is used
+            if T_dynamic:
+                Ts[-1] = np.inf
+
+            print("Using {0} temperature chains with a geometric spacing of {1:.3f}.\
+     Temperature ladder is:\n".format(n_chain,c),Ts)
+        else:
+            Ts = np.array(T_ladder)
+            n_chain = Ts.size
+
+            #make highest temperature inf if dynamic T ladder is used
+            if T_dynamic:
+                Ts[-1] = np.inf
+
+        print("Using {0} temperature chains with custom spacing: ".format(n_chain),Ts)
+    else:
+        Ts = T_max
+    if T_dynamic:
+        print("Dynamic temperature adjustment: ON")
+    else:
+        print("Dynamic temperature adjustment: OFF")
+
     #Create a dict of all the run parameters
     if write_run_parameters_to_file:
         run_configuration_data = {}
@@ -290,64 +349,6 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     #This is a global variable which keeps track of the index in order to update the history array
     global de_arr_itr
     de_arr_itr = np.zeros(n_chain, dtype=int)
-
-    #If no wn or rn variance, shouldn't do any noise jumps
-    if not vary_white_noise:
-        if not vary_per_psr_rn:
-            noise_jump_weight = 0
-    if TF_prior_file is None:
-        TF_prior = None
-    else:
-        with open(TF_prior_file, 'rb') as f:
-            TF_prior = pickle.load(f)
-    pta, QB_FP, QB_FPI, glitch_indx, wavelet_indx, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, rn_indx, all_noiseparam_idxs, num_per_puls_param_list = get_pta(pulsars, vary_white_noise=vary_white_noise, include_equad=include_equad,
-                                                                                                    include_ecorr = include_ecorr, include_efac = include_efac,
-                                                                                                    wn_backend_selection=wn_backend_selection,noisedict=noisedict, include_rn=include_rn, vary_rn=vary_rn,
-                                                                                                    include_per_psr_rn=include_per_psr_rn, vary_per_psr_rn=vary_per_psr_rn,
-                                                                                                    max_n_wavelet=max_n_wavelet, efac_start=efac_start, rn_amp_prior=rn_amp_prior,
-                                                                                                    rn_log_amp_range=rn_log_amp_range, rn_params=rn_params, per_psr_rn_amp_prior=per_psr_rn_amp_prior,
-                                                                                                    per_psr_rn_log_amp_range=per_psr_rn_log_amp_range, equad_range = equad_range,
-                                                                                                    wavelet_amp_prior=wavelet_amp_prior, ecorr_range = ecorr_range,
-                                                                                                    wavelet_log_amp_range=wavelet_log_amp_range, prior_recovery=prior_recovery,
-                                                                                                    max_n_glitch=max_n_glitch, glitch_amp_prior=glitch_amp_prior, glitch_log_amp_range=glitch_log_amp_range,
-                                                                                                    t0_min=t0_min, t0_max=t0_max, f0_min=f0_min, f0_max=f0_max, tau_min=tau_min_in, tau_max=tau_max_in,
-                                                                                                    TF_prior=TF_prior, tref=tref)
-
-
-    print('all noise param indexes: {}'.format(all_noiseparam_idxs))
-    if n_chain < 2:
-        print('Not enough chains for DE jumps. Make sure to set n_chain to 2 or more chains. Setting DE_prob = 0.')
-        DE_prob = 0
-
-    print('Number of pta params: ', len(pta.params))
-    #setting up temperature ladder
-    if n_chain > 1:
-        if T_ladder is None:
-            #using geometric spacing
-            c = T_max**(1.0/(n_chain-1))
-            Ts = c**np.arange(n_chain)
-
-            #make highest temperature inf if dynamic T ladder is used
-            if T_dynamic:
-                Ts[-1] = np.inf
-
-            print("Using {0} temperature chains with a geometric spacing of {1:.3f}.\
-     Temperature ladder is:\n".format(n_chain,c),Ts)
-        else:
-            Ts = np.array(T_ladder)
-            n_chain = Ts.size
-
-            #make highest temperature inf if dynamic T ladder is used
-            if T_dynamic:
-                Ts[-1] = np.inf
-
-        print("Using {0} temperature chains with custom spacing: ".format(n_chain),Ts)
-    else:
-        Ts = T_max
-    if T_dynamic:
-        print("Dynamic temperature adjustment: ON")
-    else:
-        print("Dynamic temperature adjustment: OFF")
 
     #set up array to hold acceptance probabilities of last PT_hist_length PT swaps
     PT_hist = np.ones((n_chain-1,PT_hist_length))*np.nan #initiated with NaNs
