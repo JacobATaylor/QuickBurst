@@ -251,19 +251,11 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
             c = T_max**(1.0/(n_chain-1))
             Ts = c**np.arange(n_chain)
 
-            #make highest temperature inf if dynamic T ladder is used
-            if T_dynamic:
-                Ts[-1] = np.inf
-
             print("Using {0} temperature chains with a geometric spacing of {1:.3f}.\
      Temperature ladder is:\n".format(n_chain,c),Ts)
         else:
             Ts = np.array(T_ladder)
             n_chain = Ts.size
-
-            #make highest temperature inf if dynamic T ladder is used
-            if T_dynamic:
-                Ts[-1] = np.inf
 
         print("Using {0} temperature chains with custom spacing: ".format(n_chain),Ts)
     else:
@@ -804,6 +796,11 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
             log_likelihood[:,0] = log_likelihood_now
             betas[:, 0] = betas_now
             PT_acc[:, 0] = PT_acc_now
+
+        
+        #Updates temeratures (betas) for parallel tempering. We do this at the start of the loop at every step because the betas array with made to record the temperature at every single step.
+        #If one is running with a dynamic temperature ladder, then this update will be overwritten when the temperature ladder is changed. This happens in the do_pt_swap() function.
+        betas[:,(i%save_every_n)+1] = betas[:,i%save_every_n]      
         ########################################################
         #
         #logging PT acceptance fraction
@@ -815,36 +812,6 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
         else: #trying to minimize calculations by only trying to re-calc after slow steps
             if i%save_every_n != 0:
                 PT_acc[:,i%save_every_n] = PT_acc[:,i%save_every_n -1]
-
-        ########################################################
-        #
-        #update temperature ladder
-        #
-        ########################################################
-        '''
-        if i%save_every_n>0:
-            if T_dynamic and PT_hist_idx>0: #based on arXiv:1501.05823 and https://github.com/willvousden/ptemcee
-                kappa = 1.0/T_dynamic_nu * T_dynamic_t0/(PT_hist_idx+T_dynamic_t0)
-                #dSs = kappa * (acc_fraction[5,:-2] - acc_fraction[5,1:-1])
-                dSs = kappa * (PT_acc[:-1,i%save_every_n] - PT_acc[1:,i%save_every_n])
-                #print(dSs)
-                deltaTs = np.diff(1 / betas[:-1,i%save_every_n-1])
-                #print(deltaTs)
-                deltaTs *= np.exp(dSs)
-                #print(deltaTs)
-
-                new_betas = 1 / (np.cumsum(deltaTs) + 1 / betas[0,i%save_every_n-1])
-                #print(new_betas)
-
-                #set new betas
-                betas[-1,i%save_every_n] = 0.0
-                betas[1:-1,i%save_every_n] = np.copy(new_betas)
-            else:
-                #copy betas from previous iteration
-                betas[:,i%save_every_n] = betas[:,i%save_every_n-1]
-        '''
-        #for now, just update the next step to have the current temp
-        betas[:,i%save_every_n+1] = betas[:,i%save_every_n]
 
         ########################################################
         #
@@ -955,7 +922,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
 
             #i%save_every_n will check where we are in sample blocks
             if (jump_decide<swap_probability):
-                do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, swap_record, vary_white_noise, num_noise_params, log_likelihood, PT_hist, PT_hist_idx)
+                do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, swap_record, vary_white_noise, num_noise_params, log_likelihood, PT_hist, PT_hist_idx, n_fast_to_slow, save_every_n, i, T_dynamic, T_dynamic_nu, T_dynamic_t0)
 
             #global proposal based on tau_scan
             elif (jump_decide<swap_probability+tau_scan_proposal_probability):
@@ -2293,7 +2260,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
 #PARALLEL TEMPERING SWAP JUMP ROUTINE
 #
 ################################################################################
-def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info, samples, i, betas, a_yes, a_no, swap_record, vary_white_noise, num_noise_params, log_likelihood, PT_hist, PT_hist_idx):
+def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info, samples, i, betas, a_yes, a_no, swap_record, vary_white_noise, num_noise_params, log_likelihood, PT_hist, PT_hist_idx, n_fast_to_slow, save_every_n, QB_itteration, T_dynamic, T_dynamic_nu, T_dynamic_t0):
     #set up map to help keep track of swaps
     swap_map = list(range(n_chain))
 
@@ -2317,6 +2284,38 @@ def do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             swap_record[i] = swap_chain
         else:
             a_no[4,swap_chain]+=1
+
+
+    #Implementaiton of dynamic temperature ladder
+    #Only update the temperatures 10 PT steps to let the last change of temperatures take some effect.
+    if PT_hist_idx[0] % 10 == 0 and PT_hist_idx[0] != 0 and T_dynamic:
+        #get which itteraiton of noise jump we are on
+        noise_itteration = QB_itteration / n_fast_to_slow
+
+        #Work in terms of temperatures because it is conceptually easier to think about
+        tempuratures = 1/betas[:,i%save_every_n]
+
+        #updates temperature ladder. Please reference "dynamic temperature ladder Quick Burst" in the docs directory to understand.
+        for j in range(1,n_chain-1):
+            #compute the kappa which essentially scales how fast the temperatures change
+            k = 1/T_dynamic_nu * (T_dynamic_t0/(noise_itteration+T_dynamic_t0))
+
+            #calculate the current value of s. We need to put a condition in here that handles if there is a negative in the log. Clearly a negative in the log will return a nan and basically crash the program.
+            curr_s = np.log(tempuratures[j] - tempuratures[j-1])
+            if np.isnan(curr_s):
+                continue
+            
+            #calculate the N I defined in the document referenced above
+            my_n = curr_s + k*(np.nanmean(PT_hist[j-1,:])- np.nanmean(PT_hist[j,:]))
+            tempuratures[j] = tempuratures[j-1]+np.exp(my_n)
+
+            #If it ever happens we change a temperature such that a lower temperature becomes higher than a higher temperature that is an issue. If that happens we force the higher temperature to be higher than the lower again.
+            if tempuratures[j] > tempuratures[j+1]:
+                tempuratures[j+1] = tempuratures[j] + 0.01
+
+        #Actually set the new temperatures.
+        for j in range(n_chain):
+            betas[j,(i%save_every_n)+1] = 1/tempuratures[j]
 
 
     PT_hist_idx += 1
