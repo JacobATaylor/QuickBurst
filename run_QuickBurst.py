@@ -1,38 +1,7 @@
 #import packages
 from __future__ import division
-
 import numpy as np
-import matplotlib.pyplot as plt
-import corner
-import healpy as hp
 import os, glob, json, pickle
-import scipy.linalg as sl
-import enterprise
-from enterprise.pulsar import Pulsar
-import enterprise.signals.parameter as parameter
-from enterprise.signals import utils
-from enterprise.signals import signal_base
-from enterprise.signals import selections
-from enterprise.signals.selections import Selection
-from enterprise.signals import white_signals
-from enterprise.signals import gp_signals
-from enterprise.signals import deterministic_signals
-import enterprise.constants as const
-from enterprise_extensions import models as ee_models
-from enterprise_extensions import model_utils as ee_model_utils
-from enterprise_extensions import model_orfs
-from enterprise_extensions import blocks
-from enterprise_extensions.frequentist import optimal_statistic as opt_stat
-from enterprise_extensions import sampler as ee_sampler
-from enterprise.signals.signal_base import LogLikelihood
-from QuickBurst import enterprise_wavelets as models
-from enterprise.signals.parameter import function
-from PTMCMCSampler.PTMCMCSampler import PTSampler as ptmcmc
-import re
-#style
-import cProfile
-
-
 from QuickBurst import QuickBurst_MCMC
 
 with open("/home/user/path_to/.../data.pkl", 'rb') as f:
@@ -134,6 +103,7 @@ samples, acc_fraction, swap_record, rj_record, ptas, log_likelihood, betas, PT_a
                                                                     tau_min_in = tau_min,
                                                                     t0_max=t0_max,
                                                                     tref = tref,
+                                                                    SNR_prior=False,
                                                                     vary_white_noise=True,  
                                                                     include_rn=False, vary_rn=False,
                                                                     include_equad=True,

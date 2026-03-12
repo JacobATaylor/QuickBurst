@@ -52,7 +52,7 @@ class QuickBurst:
         :param wn_vary:
             If true, varying intrinsic pulsar WN. [False] by default.
         :param prior_recovery:
-            If True, we return constant likelihood to be used for prior recovery diagnostic tests. [False] by default.
+            If True, we return constant a likelihood to be used for prior recovery diagnostic tests. [False] by default.
         """
 
         self.qb_logger = logging.getLogger('QB_logger')
@@ -612,6 +612,51 @@ def get_M_N(toas, residuals, Npsr, MMs, NN, invTN, CholSigma, Ndiag_array, Nwave
                         MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag_array[ii]@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
     return NN, MMs
 
+@njit()
+def shift_mn_elements(MMs, NN, sigmas, n_wave_old, n_glitch_old, adding, is_wavelet, remove_index=-1):
+    """
+    Method to shift M and N matrices during RJ steps.
+    """
+    # Copy matrices
+    MMs_new = np.copy(MMs)
+    NN_new = np.copy(NN)
+    sigmas_new = np.copy(sigmas)
+    
+    total_old = int(n_wave_old + n_glitch_old)
+    
+    # Birth move
+    if adding: 
+        if is_wavelet:
+            # Shift all glitches to the right by 1 to make room.
+            for i in range(n_glitch_old - 1, -1, -1):
+                old_idx = int(n_wave_old + i)
+                new_idx = int(n_wave_old + 1 + i)
+                
+                sigmas_new[:, new_idx] = sigmas_new[:, old_idx]
+                MMs_new[:, 2*new_idx : 2*new_idx + 2] = MMs_new[:, 2*old_idx : 2*old_idx + 2]
+                NN_new[:, 2*new_idx : 2*new_idx + 2] = NN_new[:, 2*old_idx : 2*old_idx + 2]
+                
+        else:
+            # If adding glitches, no need to shift anything. 
+            # They get added to the end already.
+            pass
+    
+    # Death move        
+    else: 
+        # Convert the relative index (0 to N-1) into the absolute array index
+        if is_wavelet:
+            abs_remove_index = int(remove_index)
+        else:
+            abs_remove_index = int(n_wave_old + remove_index)
+            
+        # Shift everything strictly after the removed index to the left by 1 to close the gap
+        for i in range(abs_remove_index + 1, total_old):
+            new_idx = i - 1
+            sigmas_new[:, new_idx] = sigmas_new[:, i]
+            MMs_new[:, 2*new_idx : 2*new_idx + 2] = MMs_new[:, 2*i : 2*i + 2]
+            NN_new[:, 2*new_idx : 2*new_idx + 2] = NN_new[:, 2*i : 2*i + 2]
+            
+    return MMs_new, NN_new, sigmas_new
 
 #####
 #needed to properly calculated logdet of the covariance matrix
@@ -837,7 +882,7 @@ class QuickBurst_info:
         self.prior_recovery = prior_recovery
 
 
-    def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, MMs, NN, glitch_pulsars):
+    def load_parameters(self, resres_logdet, Nglitch ,Nwavelet, wavelet_prm, glitch_prm, sigmas, MMs, NN, glitch_pulsars):
         '''Function to store parameters between projection parameter updates.'''
 
         self.resres_logdet = resres_logdet
