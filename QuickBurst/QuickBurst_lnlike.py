@@ -83,9 +83,9 @@ class QuickBurst:
             self.logdet += m
         self.logdet_previous = np.copy(self.logdet)
         #terms used in cholesky component of the dot product (only needs to be updated per-pulsar)
-        self.invTN = []
-        self.CholSigma = []
-        self.Ndiag = []
+        self.invTN = List()
+        self.CholSigma = List()
+        self.Ndiag = List()
 
         phiinvs = self.pta.get_phiinv(self.params, logdet=True, method='partition')
         temp_logdetphi = []
@@ -107,9 +107,14 @@ class QuickBurst:
         # self.CholSigma_previous = np.copy(self.CholSigma)
         # self.invTN_previous = np.copy(self.invTN)
         # self.Ndiag_previous = np.copy(self.Ndiag)
-        self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
-        self.invTN_previous = [np.copy(x) for x in self.invTN]
-        self.Ndiag_previous = [np.copy(x) for x in self.Ndiag]
+        self.CholSigma_previous = List()
+        self.invTN_previous = List()
+        self.Ndiag_previous = List()
+        for x,y,z in zip(self.CholSigma, self.invTN, self.Ndiag):
+            self.CholSigma_previous.append(np.copy(x))
+            self.invTN_previous.append(np.copy(y))
+            self.Ndiag_previous.append(np.copy(z))
+
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
         self.rn_vary = rn_vary
@@ -213,9 +218,10 @@ class QuickBurst:
         # self.CholSigma_previous = np.copy(self.CholSigma)
         # self.invTN_previous = np.copy(self.invTN)
         # self.Ndiag_previous = np.copy(self.Ndiag)
-        self.CholSigma_previous = [np.copy(x) for x in self.CholSigma]
-        self.invTN_previous = [np.copy(x) for x in self.invTN]
-        self.Ndiag_previous = [np.copy(x) for x in self.Ndiag]
+        for i in range(self.Npsr):
+            self.CholSigma_previous[i] = np.copy(self.CholSigma[i])
+            self.invTN_previous[i] = np.copy(self.invTN[i])
+            self.Ndiag_previous[i] = np.copy(self.Ndiag[i])
 
         #Need to make sure we update inverse cholesky matrix when in the edge case of 0 wavelets and 0 glitches
         #Cholesky matrix changes when we add wavelets/glitches, but still doesn't trigger when varying noise in this case.
@@ -504,7 +510,7 @@ class QuickBurst:
                 self.params = np.copy(self.params_previous)
                 self.resres_logdet = np.copy(self.resres_logdet_previous)
                 # self.Ndiag = list(np.copy(self.Ndiag_previous))
-                self.Ndiag = list([np.copy(x) for x in self.Ndiag_previous])
+                self.Ndiag = List(np.copy(x) for x in self.Ndiag_previous)
             if vary_white_noise:
                 self.Nvecs = np.copy(self.Nvecs_previous)
                 self.TNTs = np.copy(self.TNTs_previous)
@@ -517,8 +523,8 @@ class QuickBurst:
             # self.CholSigma = list(np.copy(self.CholSigma_previous))
             # self.invTN = list(np.copy(self.invTN_previous))
 
-            self.CholSigma = list([np.copy(x) for x in self.CholSigma_previous])
-            self.invTN = list([np.copy(x) for x in self.invTN_previous])
+            self.CholSigma = List(np.copy(x) for x in self.CholSigma_previous)
+            self.invTN = List(np.copy(x) for x in self.invTN_previous)
             self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
             if rj_jump:
                 #Resave number of glitches and wavelets

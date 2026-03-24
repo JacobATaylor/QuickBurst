@@ -15,6 +15,7 @@ import time
 
 from numba import njit,prange
 from numba.experimental import jitclass
+from numba.typed import List
 
 import enterprise
 import enterprise.signals.parameter as parameter
@@ -1689,8 +1690,8 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 QB_logl[j].toas, QB_logl[j].residuals, QB_logl[j].pos,
                 np.copy(QB_logl[j].sigmas), QB_logl[j].Npsr,
                 np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
-                np.copy(QB_logl[j].invTN), np.copy(QB_logl[j].CholSigma),
-                np.copy(QB_logl[j].Ndiag),
+                copy_ragged(QB_logl[j].invTN), copy_ragged(QB_logl[j].CholSigma),
+                copy_ragged(QB_logl[j].Ndiag),
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
                 projection_step=False)
@@ -1714,7 +1715,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                np.copy(QB_logl[j].invTN), np.copy(QB_logl[j].CholSigma), np.copy(QB_logl[j].Ndiag),
+                copy_ragged(QB_logl[j].invTN), copy_ragged(QB_logl[j].CholSigma), copy_ragged(QB_logl[j].Ndiag),
                 projection_step=False)
 
         new_log_prior = QB_FastPrior.get_lnprior_helper(new_point, FPI.uniform_par_ids, FPI.uniform_lows, FPI.uniform_highs,\
@@ -2137,9 +2138,9 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
 
                 #Draw snr prior, amplitudes, and modify new_point for selected wavelet
                 new_signal_snr[n_wavelet], new_snr_lnprior[n_wavelet] = compute_signal_snr_prior(new_point, np.copy(QB_Info[j].glitch_indx), np.copy(QB_Info[j].wavelet_indx), n_wavelet+1, n_glitch, n_wavelet, FPI, wavelet_amp_prior, wavelet_log_amp_range, 
-                                                                        np.copy(QB_logl[j].toas), np.copy(QB_logl[j].residuals), np.copy(QB_logl[j].pos), sig_loc, QB_logl[0].Npsr, 
-                                                                        MMs_loc, NN_loc, np.copy(QB_logl[j].invTN), np.copy(QB_logl[j].CholSigma), 
-                                                                        np.copy(QB_logl[j].Ndiag), np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), 
+                                                                        QB_logl[j].toas, QB_logl[j].residuals, np.copy(QB_logl[j].pos), sig_loc, QB_logl[0].Npsr, 
+                                                                        MMs_loc, NN_loc, copy_ragged(QB_logl[j].invTN), copy_ragged(QB_logl[j].CholSigma), 
+                                                                        copy_ragged(QB_logl[j].Ndiag), np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), 
                                                                         np.copy(QB_logl[j].glitch_pulsars_previous), projection_step = False)
                 
                 new_total_sig_snr = compute_total_signal_snr(np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), n_wavelet+1)
@@ -2470,7 +2471,7 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                                                                         glitch_amp_prior, glitch_log_amp_range, QB_logl[j].toas, QB_logl[j].residuals, QB_Info[0].Npsr, QB_Info[j].pos, 
                                                                         sig_loc, MMs_loc, NN_loc, np.copy(QB_logl[j].wavelet_prm), 
                                                                         np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                                                                        np.copy(QB_logl[j].invTN), np.copy(QB_logl[j].CholSigma), np.copy(QB_logl[j].Ndiag), projection_step = False)
+                                                                        copy_ragged(QB_logl[j].invTN), copy_ragged(QB_logl[j].CholSigma), copy_ragged(QB_logl[j].Ndiag), projection_step = False)
                 
                 # #Log likelihood needs to be recomputed after drawing new amplitude values for the chosen GW wavelet, but can do quickly.
                 # log_L = QB_logl[j].get_lnlikelihood(new_point)
@@ -4003,3 +4004,11 @@ def correct_intrinsic(sample,x0, cut_par_ids, cut_lows, cut_highs):
         sample[idx] = reflect_into_range(sample[idx],cut_lows[itr],cut_highs[itr])
 
     return sample
+
+@njit()
+def copy_ragged(ragged_list):
+    """Deep copies a Typed List of inhomogeneous arrays safely."""
+    new_list = List()
+    for i in range(len(ragged_list)):
+        new_list.append(np.copy(ragged_list[i]))
+    return new_list
