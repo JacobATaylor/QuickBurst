@@ -656,7 +656,6 @@ def sample_glitch_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
         
         # Escape hatch if rejection sampling takes too long
         if k > 10000:
-            print("[DRAW_SINGLE GLITCH] WARNING: Rejection sampling exceeded 10000 iterations! Setting SNR=0")
             SNR = 0.0
             break
     return SNR
@@ -746,7 +745,6 @@ def sample_signal_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
         k += 1
         # Escape hatch if rejection sampling takes too long
         if k > 10000:
-            print("[DRAW_SINGLE WAVELET] WARNING: Rejection sampling exceeded 10000 iterations! Setting SNR=0")
             SNR = 0.0
             break
 

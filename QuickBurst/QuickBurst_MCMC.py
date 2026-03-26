@@ -40,23 +40,23 @@ from QuickBurst import QuickBurst_lnlike as Quickburst
 from QuickBurst import QB_FastPrior
 from QuickBurst.QB_FastPrior import compute_signal_snr_prior, compute_glitch_snr_prior, compute_glitch_snr, compute_signal_snr, compute_total_signal_snr, calculate_snr_prior_value
 
-
 ################################################################################
 #
 #MAIN MCMC ENGINE
 #
 ################################################################################
-def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_wavelet_prior='flat', n_wavelet_start='random', RJ_weight=2, glitch_RJ_weight=2,
-            regular_weight=2, noise_jump_weight=2, PT_swap_weight=2, DE_prob = 0.6, fisher_prob = 0.3, prior_draw_prob = 0.1, de_history_size = 5000, thin_de = 10000, T_ladder=None, T_dynamic=False, T_dynamic_nu=300, T_dynamic_t0=1000, PT_hist_length=100,
-            tau_scan_proposal_weight=2, glitch_tau_scan_proposal_weight=2, tau_scan_file=None,
-            prior_recovery=False, wavelet_amp_prior='uniform', rn_amp_prior='uniform', per_psr_rn_amp_prior='uniform',
-            rn_log_amp_range=[-18,-11], per_psr_rn_log_amp_range=[-18,-11], wavelet_log_amp_range=[-18,-11],
-            vary_white_noise=False, efac_start=None, include_equad=False, include_ecorr = False, include_efac = False, wn_backend_selection=False, noisedict=None,
-            include_rn=False, vary_rn=False, rn_params=[-13.0, 1.0], include_per_psr_rn=False, vary_per_psr_rn=False, per_psr_rn_start_file=None, jupyter_notebook=False,
-            max_n_glitch=1, glitch_amp_prior='uniform', glitch_log_amp_range=[-18, -11], equad_range = [-8.5, -5], ecorr_range = [-8.5, -5], n_glitch_prior='flat', n_glitch_start='random',
-            t0_min=0.0, t0_max=10.0, tref=53000*86400, glitch_tau_scan_file=None, TF_prior_file=None, SNR_prior = False, f0_min=3.5e-9, f0_max=1e-7, tau_min_in=0.2, tau_max_in=5.0,
-            save_every_n=10, savepath=None, resume_from=None, start_from=None, n_status_update=100, n_fish_update=1000, n_fast_to_slow=1000, thin = 100, write_run_parameters_to_file = True, run_configuration_directory = "", run_configuration_file = ""):
-
+def run_qb(N_slow, T_max, n_chain, chain_params,
+            n_wavelet_prior='flat', n_wavelet_start='random',
+            RJ_weight=2, glitch_RJ_weight=2, regular_weight=2, noise_jump_weight=2, PT_swap_weight=2,
+            DE_prob=0.6, fisher_prob=0.3, prior_draw_prob=0.1, de_history_size=5000, thin_de=10000,
+            T_ladder=None, T_dynamic=False, T_dynamic_nu=300, T_dynamic_t0=1000, PT_hist_length=100,
+            tau_scan_proposal_weight=2, glitch_tau_scan_proposal_weight=2, tau_scan_file=None, glitch_tau_scan_file=None,
+            n_glitch_prior='flat', n_glitch_start='random',
+            SNR_prior=False, noisedict=None, jupyter_notebook=False,
+            save_every_n=10, savepath=None, resume_from=None, start_from=None,
+            n_status_update=100, n_fish_update=1000, n_fast_to_slow=1000, thin=100, 
+            write_run_parameters_to_file = True, run_configuration_directory = "", 
+            run_configuration_file = ""):
     """
     Function to perform markov-chain monte carlo sampling with for generic GW burst signals. Utilizes Class Functions from QuickBurst_lnlike.
 
@@ -70,12 +70,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
         Max temperature allowed in Parallel Tempering (PT) chains.
     :param n_chain:
         Number of chains to include in a run.
-    :param pulsars:
-        List of pulsar objects.
-    :param max_n_wavelet:
-        Maximum number of GW signal wavelets to include in PTA model.
-    :param min_n_wavelet:
-        Minimum number of GW signal wavelets to include in PTA model.
+    :param chain_param:
+        Class containing model parameters, pta, pulsar, and unchanging arrays.
     :param n_wavelet_prior:
         Type of signal GW signal wavelet prior to use. Either ''flat'' or you can specify list of weights of shape max_n_wavelet. [flat'] by default.
     :param n_wavelet_start:
@@ -110,80 +106,17 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     :param tau_scan_file:
         Tau scan file containing tau scan proposal data for GW signal wavelet tau scan proposal jumps. If None, RJ_weight and
         tau_scan_proposal_weight must both be 0. [None] by default.
-    :param prior_recovery:
-        If True, return 1 for the likelihood for every step. Parameter recovery should return the specified priors. [False] by default.
-    :param wavelet_amp_prior:
-        GW signal wavelet prior on log10_h and log10_hcross. Choice can be ['uniform', 'log_uniform']. ['uniform'] by default.
-    :param rn_amp_prior:
-        CURN amplitude prior. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
-    :param per_psr_rn_amp_prior:
-        Intrinsic pulsar RN amplitude prior. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
-    :param rn_log_amp_range:
-        CURN amplitude prior range. [-18, -11] by default.
-    :param per_psr_rn_log_amp_range:
-        Intrinsic pulsar RN amplitude prior range: [-18, -11] by default.
-    :param wavelet_log_amp_range:
-        GW signal wavelet amplitude prior range. [-18, -11] by default.
-    :param vary_white_noise:
-        If True, vary intrinsic pulsar white noise. [False] by default.
-    :param efac_start: NOT YET IMPLEMENTED
-        If vary_white_noise = True, set initial sample for efac parameters to efac_start. [None] by default.
-    :param include_equad:
-        If True, will include t2equad models in PTA. If vary_white_noise = True, t2equad model parameters will be varied. [False] by default.
-    :param include_ecorr:
-        If True, will include ecorr models in PTA. If vary_white_noise = True, ecorr model parameters will be varied. [False] by default.
-    :param include_efac:
-        If True, will include efac models in PTA. If vary_white_noise = True, efac model parameters will be varied.
-    :param wn_backend_selection:
-        If True, use enterprise Selection based on backend. Usually use True for real data, False for simulated data. [False] by default.
     :param noisedict:
         Parameter noise dictionary for model parameters. Can be either a filepath or a dictionary. [None] by default.
-    :param include_rn:
-        If True, include CURN parameters in PTA model. If vary_rn = True, these parameters will be varied. [False] by default.
-    :param vary_rn:
-        If True, CURN parameters will be varied in PTA model. [False] by default.
-    :param rn_params:
-        If CURN parameters are fixed, rn_params will set the amplitude and spectral index. rn_params[0] sets
-        the amplitude, while rn_params[1] sets the spectral index. [-13.0, 1] by default.
-    :param include_per_psr_rn:
-        If True, intrinsic pulsar red noise models will be included in PTA. [False] by default.
-    :param vary_per_psr_rn:
-        If True, intrinsic pulsar red noise will be varied. [False] by default.
-    :param per_psr_rn_start_file: NOT YET IMPLEMENTED
-        If vary_per_psr_rn = True, sets initial parameter values to values specified in file. Usually will be an empirical distribution. [None] by default.
     :param jupyter_notebook:
         If True, use compact output suitable for jupyter notebooks. [False] by default.
-    :param max_n_glitch:
-        Max number of noise transient wavelets allowed in PTA model. [1] by default.
-    :param glitch_amp_prior:
-        Prior on noise transient wavelet amplitudes. Choices can be ['uniform', 'log_uniform']. ['uniform'] by default.
-    :param glitch_log_amp_range:
-        Noise transient wavelet amplitude prior range. [-18, -11] by default.
-    :param equad_range:
-        If include_equad = True and vary_equad = True, equad_range sets the prior bounds on equad parameters. [-8.5, 5] by default.
-    :param ecorr_range:
-        If include_ecorr = True and vary_ecorr = True, ecorr_range sets the prior bounds on ecorr parameters. [-8.5, 5] by default.
     :param n_glitch_prior:
         Type of noise transient wavelet prior to use. Either ''flat'' or you can specify list of weights of shape max_n_wavelet. [flat'] by default.
     :param n_glitch_start:
         How many noise transient wavelets to start sampling with. ['random'] by default, which is a random draw between [0, max_n_glitch].
-    :param t0_min:
-        The minimum epoch time with reference to the beginning of the data set.
-    :param t0_max:
-        The maximum epoch time for the data set.
     :param glitch_tau_scan_file:
         Tau scan file containing tau scan proposal data for noise transient wavelet tau scan proposal jumps. If None, glitch_RJ_weight and
         glitch_tau_scan_proposal_weight must both be 0. [None] by default.
-    :param TF_prior_file:
-        Custom prior for t0 and f0 shape parameters. [None] by default.
-    :param f0_min:
-        Lower bound on GW signal wavelet and noise transient wavelet frequency in Hz. [3.5e-9] by default.
-    :param f0_max:
-        Upper bound on GW signal wavelet and noise transient wavelet frequency in Hz. [1e-7] by default.
-    :param tau_min_in:
-        Lower bound on GW signal wavelet and noise transient wavelet width in years. [0.2] by default.
-    :param tau_max_in:
-        Upper bound on GW signal wavelet and noise transient wavelet width in years. [5] by default.
     :param save_every_n:
         Number of samples between saving the chain. This is multiplied by n_fast_to_slow. [10] by default.
     :param savepath:
@@ -208,6 +141,33 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
         The name of the file of that stores the run configuration. I recommend making it a similar name to the file the actual chain data is stored in. DONT ADD A FILE EXTENSION.
     """
 
+    pulsars = chain_params.psrs
+    pta = chain_params.pta
+    QB_FP = chain_params.QB_FP
+    QB_FPI = chain_params.QB_FPI
+    glitch_indx = chain_params.glitch_indx
+    wavelet_indx = chain_params.wavelet_indx
+    per_puls_indx = chain_params.per_puls_indx
+    per_puls_rn_indx = chain_params.per_puls_rn_indx
+    per_puls_wn_indx = chain_params.per_puls_wn_indx
+    rn_indx = chain_params.rn_indx
+    all_noiseparam_idxs = chain_params.all_noiseparam_idxs
+    num_per_puls_param_list = chain_params.num_per_puls_param_list
+
+    max_n_wavelet = chain_params.max_n_wavelet
+    min_n_wavelet = chain_params.min_n_wavelet
+    max_n_glitch = chain_params.max_n_glitch
+    vary_white_noise = chain_params.vary_white_noise
+    vary_rn = chain_params.vary_rn
+    vary_per_psr_rn = chain_params.vary_per_psr_rn
+    prior_recovery = chain_params.prior_recovery
+    tref = chain_params.tref
+    wavelet_amp_prior = chain_params.wavelet_amp_prior
+    wavelet_log_amp_range = chain_params.wavelet_log_amp_range
+    glitch_amp_prior = chain_params.glitch_amp_prior
+    glitch_log_amp_range = chain_params.glitch_log_amp_range
+    TF_prior = chain_params.TF_prior
+    TF_prior_file=chain_params.TF_prior_file
     #scale steps to slow steps
     N = N_slow*n_fast_to_slow
     n_status_update = n_status_update*n_fast_to_slow
@@ -229,19 +189,6 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
     else:
         with open(TF_prior_file, 'rb') as f:
             TF_prior = pickle.load(f)
-    pta, QB_FP, QB_FPI, glitch_indx, wavelet_indx, per_puls_indx, per_puls_rn_indx, per_puls_wn_indx, rn_indx, all_noiseparam_idxs, num_per_puls_param_list = get_pta(pulsars, vary_white_noise=vary_white_noise, include_equad=include_equad,
-                                                                                                    include_ecorr = include_ecorr, include_efac = include_efac,
-                                                                                                    wn_backend_selection=wn_backend_selection,noisedict=noisedict, include_rn=include_rn, vary_rn=vary_rn,
-                                                                                                    include_per_psr_rn=include_per_psr_rn, vary_per_psr_rn=vary_per_psr_rn,
-                                                                                                    max_n_wavelet=max_n_wavelet, efac_start=efac_start, rn_amp_prior=rn_amp_prior,
-                                                                                                    rn_log_amp_range=rn_log_amp_range, rn_params=rn_params, per_psr_rn_amp_prior=per_psr_rn_amp_prior,
-                                                                                                    per_psr_rn_log_amp_range=per_psr_rn_log_amp_range, equad_range = equad_range,
-                                                                                                    wavelet_amp_prior=wavelet_amp_prior, ecorr_range = ecorr_range,
-                                                                                                    wavelet_log_amp_range=wavelet_log_amp_range, prior_recovery=prior_recovery,
-                                                                                                    max_n_glitch=max_n_glitch, glitch_amp_prior=glitch_amp_prior, glitch_log_amp_range=glitch_log_amp_range,
-                                                                                                    t0_min=t0_min, t0_max=t0_max, f0_min=f0_min, f0_max=f0_max, tau_min=tau_min_in, tau_max=tau_max_in,
-                                                                                                    TF_prior=TF_prior, tref=tref)
-
 
     print('all noise param indexes: {}'.format(all_noiseparam_idxs))
     if n_chain < 2:
@@ -298,41 +245,41 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
         run_configuration_data['tau_scan_file'] = tau_scan_file
         run_configuration_data['prior_recovery'] = prior_recovery
         run_configuration_data['wavelet_amp_prior'] = wavelet_amp_prior
-        run_configuration_data['rn_amp_prior'] = rn_amp_prior
-        run_configuration_data['per_psr_rn_amp_prior'] = per_psr_rn_amp_prior
-        run_configuration_data['rn_log_amp_range'] = rn_log_amp_range
-        run_configuration_data['per_psr_rn_log_amp_range'] = per_psr_rn_log_amp_range
+        run_configuration_data['rn_amp_prior'] = chain_params.rn_amp_prior
+        run_configuration_data['per_psr_rn_amp_prior'] = chain_params.per_psr_rn_amp_prior
+        run_configuration_data['rn_log_amp_range'] = chain_params.rn_log_amp_range
+        run_configuration_data['per_psr_rn_log_amp_range'] = chain_params.per_psr_rn_log_amp_range
         run_configuration_data['wavelet_log_amp_range'] = wavelet_log_amp_range
         run_configuration_data['vary_white_noise'] = vary_white_noise
-        run_configuration_data['efac_start'] = efac_start
-        run_configuration_data['include_equad'] = include_equad
-        run_configuration_data['include_ecorr'] = include_ecorr
-        run_configuration_data['include_efac'] = include_efac
-        run_configuration_data['wn_backend_selection'] = wn_backend_selection
+        run_configuration_data['efac_start'] = chain_params.efac_start
+        run_configuration_data['include_equad'] = chain_params.include_equad
+        run_configuration_data['include_ecorr'] = chain_params.include_ecorr
+        run_configuration_data['include_efac'] = chain_params.include_efac
+        run_configuration_data['wn_backend_selection'] = chain_params.wn_backend_selection
         run_configuration_data['noisedict'] = noisedict
-        run_configuration_data['include_rn'] = include_rn
+        run_configuration_data['include_rn'] = chain_params.include_rn
         run_configuration_data['vary_rn'] = vary_rn
-        run_configuration_data['per_psr_rn_start_file'] = per_psr_rn_start_file
+        run_configuration_data['per_psr_rn_start_file'] = chain_params.per_psr_rn_start_file
         run_configuration_data['jupyter_notebook'] = jupyter_notebook
-        run_configuration_data['rn_params'] = rn_params
-        run_configuration_data['include_per_psr_rn'] = include_per_psr_rn
+        run_configuration_data['rn_params'] = chain_params.rn_params
+        run_configuration_data['include_per_psr_rn'] = chain_params.include_per_psr_rn
         run_configuration_data['vary_per_psr_rn'] = vary_per_psr_rn
         run_configuration_data['max_n_glitch'] = max_n_glitch
         run_configuration_data['glitch_amp_prior'] = glitch_amp_prior
         run_configuration_data['glitch_log_amp_range'] = glitch_log_amp_range
-        run_configuration_data['equad_range'] = equad_range
-        run_configuration_data['ecorr_range'] = ecorr_range
+        run_configuration_data['equad_range'] = chain_params.equad_range
+        run_configuration_data['ecorr_range'] = chain_params.ecorr_range
         run_configuration_data['n_glitch_prior'] = n_glitch_prior
         run_configuration_data['n_glitch_start'] = n_glitch_start
-        run_configuration_data['t0_min'] = t0_min
-        run_configuration_data['t0_max'] = t0_max
-        run_configuration_data['tref'] = tref
+        run_configuration_data['t0_min'] = chain_params.t0_min
+        run_configuration_data['t0_max'] = chain_params.t0_max
+        run_configuration_data['tref'] = chain_params.tref
         run_configuration_data['SNR_prior'] = SNR_prior
         run_configuration_data['glitch_tau_scan_file'] = glitch_tau_scan_file
         run_configuration_data['TF_prior_file'] = TF_prior_file
-        run_configuration_data['f0_min'] = f0_min
-        run_configuration_data['f0_max'] = f0_max
-        run_configuration_data['tau_min_in'] = tau_min_in
+        run_configuration_data['f0_min'] = chain_params.f0_min
+        run_configuration_data['f0_max'] = chain_params.f0_max
+        run_configuration_data['tau_min_in'] = chain_params.tau_min
         run_configuration_data['save_every_n'] = save_every_n
         run_configuration_data['savepath'] = savepath
         run_configuration_data['resume_from'] = resume_from
@@ -462,7 +409,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
             n_glitch = int(samples[j,0,1])# get_n_glitch(samples, j, 0)
             first_sample = samples[j,0,2:]
 
-            QB_logl.append(Quickburst.QuickBurst(pta = pta, psrs = pulsars, params = dict(zip(pta.param_names, first_sample)), Npsr = len(pulsars), tref = tref, 
+            QB_logl.append(Quickburst.QuickBurst(pta = pta, Ts = chain_params.Ts, toas = chain_params.toas, residuals = chain_params.residuals, 
+                                                 pos = chain_params.pos, params = dict(zip(pta.param_names, first_sample)), Npsr = len(pulsars), 
                                                  Nglitch = n_glitch, Nwavelet = n_wavelet, Nglitch_max = max_n_glitch, Nwavelet_max = max_n_wavelet, 
                                                  rn_vary = vary_rn, wn_vary = vary_white_noise, prior_recovery = prior_recovery))
             QB_Info.append(Quickburst.QuickBurst_info(Npsr=len(pulsars),pos = QB_logl[j].pos, resres_logdet = QB_logl[j].resres_logdet, 
@@ -621,7 +569,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
                 rn_check = True
             print('QB logl object creation')
             
-            QB_logl.append(Quickburst.QuickBurst(pta = pta, psrs = pulsars, params = dict(zip(pta.param_names, first_sample)), Npsr = len(pulsars), tref = tref,
+            QB_logl.append(Quickburst.QuickBurst(pta = pta, Ts = chain_params.Ts, toas = chain_params.toas, residuals = chain_params.residuals, 
+                                                 pos = chain_params.pos, params = dict(zip(pta.param_names, first_sample)), Npsr = len(pulsars),
                                                  Nglitch = n_glitch, Nwavelet = n_wavelet, Nglitch_max = max_n_glitch, Nwavelet_max = max_n_wavelet, 
                                                  rn_vary = vary_rn, wn_vary = vary_white_noise, prior_recovery = prior_recovery))
             QB_Info.append(Quickburst.QuickBurst_info(Npsr=len(pulsars),pos = QB_logl[j].pos, resres_logdet = QB_logl[j].resres_logdet, 
@@ -774,8 +723,8 @@ def run_qb(N_slow, T_max, n_chain, pulsars, max_n_wavelet=1, min_n_wavelet=0, n_
         print('-'*20)
 
     #setting up arrays to record acceptance and swaps
-    a_yes=np.zeros((10, n_chain)) #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan,  PT, fast fisher, regular fisher, noise_jump DE, noise_jump fisher, noise_jump prior draw)
-    a_no=np.zeros((10, n_chain))
+    a_yes=np.zeros((12, n_chain)) #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan,  PT, fast fisher, regular fisher, noise_jump DE, noise_jump fisher, noise_jump prior draw)
+    a_no=np.zeros((12, n_chain))
     acc_fraction = a_yes/(a_no+a_yes)
     if resume_from is None:
         swap_record = np.zeros((save_every_n+1, 1))
@@ -989,11 +938,13 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                 print('Progress: {0:2.2f}% '.format(i/N*100) + '\r',end='')
             else:
                 print('Progress: {0:2.2f}% '.format(i/N*100) +
-                        'Acceptance fraction #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan, PT, fast_jump, regular_jump, noise_jump DE, noise_jump fisher, noise_jump prior):'+'\n')
+                        'Acceptance fraction #columns: chain number; rows: proposal type (glitch_RJ, glitch_tauscan, wavelet_RJ, wavelet_tauscan, PT, fast_jump, regular_jump DE, regular_jump fisher, regular_jump prior, noise_jump DE, noise_jump fisher, noise_jump prior):'+'\n')
                 print('Run Time: {0}s'.format(time.time()-t_start))
                 print(acc_fraction)
                 print(PT_acc[:,i%save_every_n])
                 print('Differential evolution array: {0}'.format(de_arr_itr))
+
+
         #################################################################################
         #
         #update our eigenvectors from the fisher matrix every n_fish_update iterations
@@ -1114,8 +1065,8 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                                              samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx, 
                                              per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs, num_noise_params, 
                                              vary_white_noise, vary_per_psr_rn, log_likelihood, wavelet_indx, 
-                                             glitch_indx, N_Noise_Params_changed, de_history, total_weight, 
-                                             DE_prob, fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior,
+                                             glitch_indx, N_Noise_Params_changed, de_history, DE_prob, 
+                                             fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior,
                                              transient_snr, signal_snr, total_signal_snr)
             #jump to change glitch params
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability+glitch_tau_scan_proposal_probability):
@@ -1141,10 +1092,10 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                                                QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, 
                                                eig_glitch, eig_rn, num_noise_params, num_per_psr_params, 
                                                vary_rn, wavelet_indx, glitch_indx, rn_indx, log_likelihood, 
-                                               total_weight, DE_prob, fisher_prob, prior_draw_prob, SNR_prior, 
-                                               snr_lnprior, transient_snr, signal_snr, total_signal_snr, 
-                                               glitch_amp_prior, glitch_log_amp_range, wavelet_amp_prior, 
-                                               wavelet_log_amp_range)
+                                               DE_prob, fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior, 
+                                               transient_snr, signal_snr, total_signal_snr, glitch_amp_prior, 
+                                               glitch_log_amp_range, wavelet_amp_prior, wavelet_log_amp_range, 
+                                               de_history)
 
             #update de history after every shape parameter update
             if DE_prob > 0:
@@ -1570,13 +1521,14 @@ def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,
 def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                  samples, i, betas, a_yes, a_no, eig, eig_glitch, eig_rn,
                  num_noise_params, num_per_psr_params, vary_rn, wavelet_indx, glitch_indx,
-                 rn_indx, log_likelihood, total_weight, DE_prob, fisher_prob, prior_draw_prob, 
+                 rn_indx, log_likelihood, DE_prob, fisher_prob, prior_draw_prob, 
                  SNR_prior, snr_lnprior, transient_snr, signal_snr, total_signal_snr,
-                 glitch_amp_prior, glitch_log_amp_range, wavelet_amp_prior, wavelet_log_amp_range):
-    
+                 glitch_amp_prior, glitch_log_amp_range, wavelet_amp_prior, wavelet_log_amp_range,
+                 de_history):
+
     #Keeps track of if the jump was accepted or rejected. Need to keep track of each PT chain so we have an array
     accept_jump_arr = np.zeros(n_chain) 
- 
+    total_weight = (DE_prob + fisher_prob + prior_draw_prob)
     for j in range(n_chain):
         n_wavelet = int(samples[j,i,0]) #get_n_wavelet(samples, j, i)
         n_glitch = int(samples[j,i,1]) #get_n_glitch(samples, j, i)
@@ -1634,43 +1586,75 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 total_signal_snr[j, i+1] = total_signal_snr[j, i]            
             continue
 
-        # which_jump = np.random.choice(3, p=[DE_prob/total_weight,
-        #                                     fisher_prob/total_weight,
-        #                                     prior_draw_prob/total_weight])
+        which_jump = np.random.choice(3, p=[DE_prob/total_weight,
+                                            fisher_prob/total_weight,
+                                            prior_draw_prob/total_weight])
+ 
         if what_to_vary == 'WAVE':
             wavelet_select = np.random.randint(n_wavelet)
-            jump_select = np.random.randint(10)
-            jump_1wavelet = eig[j,wavelet_select,jump_select,:]
-            jump = np.zeros(samples_current.size)
-            #change intrinsic (and extrinsic) parameters of selected wavelet
-
-            #This is meant to replace all values for a specific wavelet,
-            #which means we need to index 1 beyond the end so it will see all values
-            jump[wavelet_indx[wavelet_select,0]:wavelet_indx[wavelet_select,9]+1] = jump_1wavelet
-            #and change sky location and polarization angle of all wavelets
-            for which_wavelet in range(n_wavelet):
-                jump[wavelet_indx[which_wavelet,0]] = jump_1wavelet[0]
-                jump[wavelet_indx[which_wavelet,1]] = jump_1wavelet[1]
-                jump[wavelet_indx[which_wavelet,2]] = jump_1wavelet[2]
+            wavelet_param_ids = list(range(wavelet_indx[wavelet_select,0], wavelet_indx[wavelet_select,9]+1))
+ 
+            if which_jump == 0:
+                ndim = len(wavelet_param_ids)
+                new_point = DE_proposal(j, samples_current, de_history, wavelet_param_ids, ndim)
+                for which_wavelet in range(n_wavelet):
+                    new_point[wavelet_indx[which_wavelet,0]] = new_point[wavelet_indx[wavelet_select,0]]
+                    new_point[wavelet_indx[which_wavelet,1]] = new_point[wavelet_indx[wavelet_select,1]]
+                    new_point[wavelet_indx[which_wavelet,2]] = new_point[wavelet_indx[wavelet_select,2]]
+ 
+            elif which_jump == 1:
+                jump_select = np.random.randint(10)
+                jump_1wavelet = eig[j,wavelet_select,jump_select,:]
+                jump = np.zeros(samples_current.size)
+                jump[wavelet_indx[wavelet_select,0]:wavelet_indx[wavelet_select,9]+1] = jump_1wavelet
+                for which_wavelet in range(n_wavelet):
+                    jump[wavelet_indx[which_wavelet,0]] = jump_1wavelet[0]
+                    jump[wavelet_indx[which_wavelet,1]] = jump_1wavelet[1]
+                    jump[wavelet_indx[which_wavelet,2]] = jump_1wavelet[2]
+                new_point = samples_current + jump*np.random.normal()
+ 
+            elif which_jump == 2:
+                new_point = QB_FastPrior.get_sample_idxs(samples_current, wavelet_param_ids, FPI)
+                for which_wavelet in range(n_wavelet):
+                    new_point[wavelet_indx[which_wavelet,0]] = new_point[wavelet_indx[wavelet_select,0]]
+                    new_point[wavelet_indx[which_wavelet,1]] = new_point[wavelet_indx[wavelet_select,1]]
+                    new_point[wavelet_indx[which_wavelet,2]] = new_point[wavelet_indx[wavelet_select,2]]
+ 
         elif what_to_vary == 'GLITCH':
             glitch_select = np.random.randint(n_glitch)
-            jump_select = np.random.randint(6)
-            jump_1glitch = eig_glitch[j,glitch_select,jump_select,:]
-            jump = np.zeros(samples_current.size)
-            #change intrinsic (and extrinsic) parameters of selected wavelet
-
-            #This is meant to replace all values for a specific glitch,
-            #which means we need to index 1 beyond the end so it will see all values
-            jump[glitch_indx[glitch_select,0]:glitch_indx[glitch_select,5]+1] = jump_1glitch
+            glitch_param_ids = list(range(glitch_indx[glitch_select,0], glitch_indx[glitch_select,5]+1))
+ 
+            if which_jump == 0:
+                ndim = len(glitch_param_ids)
+                new_point = DE_proposal(j, samples_current, de_history, glitch_param_ids, ndim)
+ 
+            elif which_jump == 1:
+                jump_select = np.random.randint(6)
+                jump_1glitch = eig_glitch[j,glitch_select,jump_select,:]
+                jump = np.zeros(samples_current.size)
+                jump[glitch_indx[glitch_select,0]:glitch_indx[glitch_select,5]+1] = jump_1glitch
+                new_point = samples_current + jump*np.random.normal()
+ 
+            elif which_jump == 2:
+                new_point = QB_FastPrior.get_sample_idxs(samples_current, glitch_param_ids, FPI)
+ 
         elif what_to_vary == 'RN':
             rn_changed = True
-            jump_select = np.random.randint(2)
-            jump_rn = eig_rn[j,jump_select,:]
-            jump = np.zeros(samples_current.size)
-
-            jump[rn_indx[0]:rn_indx[1]+1] = jump_rn
-
-        new_point = samples_current + jump*np.random.normal()#only sd of 1 for all parameter jumps
+            rn_param_ids = list(range(rn_indx[0], rn_indx[1]+1))
+ 
+            if which_jump == 0:
+                ndim = len(rn_param_ids)
+                new_point = DE_proposal(j, samples_current, de_history, rn_param_ids, ndim)
+ 
+            elif which_jump == 1:
+                jump_select = np.random.randint(2)
+                jump_rn = eig_rn[j,jump_select,:]
+                jump = np.zeros(samples_current.size)
+                jump[rn_indx[0]:rn_indx[1]+1] = jump_rn
+                new_point = samples_current + jump*np.random.normal()
+ 
+            elif which_jump == 2:
+                new_point = QB_FastPrior.get_sample_idxs(samples_current, rn_param_ids, FPI)
         
         #check if we are inside prior before calling likelihood, otherwise it throws an error
         new_point = correct_intrinsic(new_point, FPI, FPI.cut_par_ids, FPI.cut_lows, FPI.cut_highs)
@@ -1733,7 +1717,15 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
 
         if new_log_prior==-np.inf:
             samples[j,i+1,:] = samples[j,i,:]
-            a_no[6,j] += 1
+            #DE proposals
+            if which_jump == 0:
+                a_no[6,j] += 1
+            #Fisher proposals
+            elif which_jump == 1:
+                a_no[7,j] += 1
+            #Prior proposals
+            elif which_jump == 2:
+                a_no[8,j] += 1
             log_likelihood[j,i+1] = log_likelihood[j,i]
 
             if SNR_prior:
@@ -1813,7 +1805,15 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
             samples[j,i+1,0] = n_wavelet
             samples[j,i+1,1] = n_glitch
             samples[j,i+1,2:] = new_point[:]
-            a_yes[6,j]+=1
+            #DE proposals
+            if which_jump == 0:
+                a_yes[6,j]+=1
+            #Fisher proposals
+            elif which_jump == 1:
+                a_yes[7,j]+=1
+            #Prior proposals
+            elif which_jump == 2:
+                a_yes[8,j]+=1
             log_likelihood[j,i+1] = log_L
 
             QB_logl[j].save_values(accept_new_step=True)
@@ -1827,7 +1827,15 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
             accept_jump_arr[j] = 1
         else:
             samples[j,i+1,:] = samples[j,i,:]
-            a_no[6,j]+=1
+            #DE proposals
+            if which_jump == 0:
+                a_no[6,j] += 1
+            #Fisher proposals
+            elif which_jump == 1:
+                a_no[7,j] += 1
+            #Prior proposals
+            elif which_jump == 2:
+                a_no[8,j] += 1
             log_likelihood[j,i+1] = log_likelihood[j,i]
 
             QB_logl[j].save_values(accept_new_step=False, vary_red_noise=rn_changed, vary_white_noise=wn_changed)
@@ -2702,7 +2710,7 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
                per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs,
                num_noise_params, vary_white_noise, vary_per_psr_rn, log_likelihood, 
                wavelet_indx, glitch_indx, N_Noise_Params_changed, de_history, 
-               total_weight, DE_prob, fisher_prob, prior_draw_prob, SNR_prior, 
+               DE_prob, fisher_prob, prior_draw_prob, SNR_prior, 
                snr_lnprior, transient_snr, signal_snr, total_signal_snr):
     
     total_weight = (DE_prob + fisher_prob + prior_draw_prob)
@@ -2794,7 +2802,15 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
         
         if new_log_prior==-np.inf: #check if prior is -inf - reject step if it is
             samples[j,i+1,:] = samples[j,i,:]
-            a_no[7,j] += 1
+            #DE proposals
+            if which_jump == 0:
+                a_no[9,j]+=1
+            #Fisher proposals
+            if which_jump == 1:
+                a_no[10,j]+=1
+            #Prior proposals
+            if which_jump == 2:
+                a_no[11,j]+=1
             log_likelihood[j,i+1] = log_likelihood[j,i]
             
             QB_logl[j].save_values(accept_new_step=False, 
@@ -2898,13 +2914,13 @@ def noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Info,
             samples[j,i+1,:] = samples[j,i,:]
             #DE proposals
             if which_jump == 0:
-                a_no[7,j]+=1
+                a_no[9,j]+=1
             #Fisher proposals
             if which_jump == 1:
-                a_no[8,j]+=1
-            #prior proposals
+                a_no[10,j]+=1
+            #Prior proposals
             if which_jump == 2:
-                a_no[9,j]+=1
+                a_no[11,j]+=1
             log_likelihood[j,i+1] = log_likelihood[j,i]
             QB_logl[j].save_values(accept_new_step=False, vary_white_noise = vary_white_noise, vary_red_noise = vary_per_psr_rn)
             QB_Info[j].load_parameters(QB_logl[j].resres_logdet, QB_logl[j].Nglitch, QB_logl[j].Nwavelet, QB_logl[j].wavelet_prm, QB_logl[j].glitch_prm, QB_logl[j].sigmas, QB_logl[j].MMs, QB_logl[j].NN, QB_logl[j].glitch_pulsars)
@@ -3166,7 +3182,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-2
 
                 #calculate diagonal elements of the Hessian from a central finite element scheme
                 #note the minus sign compared to the regular Hessian
-                if len(QB_logl.psrs) == 1: #if only 1 pulsar, run this
+                if len(pta.pulsars) == 1: #if only 1 pulsar, run this
                     fisher[0,i+offset,i+offset] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
                 else: #else, run as normal
                     fisher[1,i+offset,i+offset] = -(pp - 2.0*nn + mm)/(4.0*epsilon*epsilon)
@@ -3205,7 +3221,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-2
 
                     #calculate off-diagonal elements of the Hessian from a central finite element scheme
                     #note the minus sign compared to the regular Hessian
-                    if len(QB_logl.psrs) == 1: #if only 1 pulsar, run this
+                    if len(pta.pulsars) == 1: #if only 1 pulsar, run this
                         fisher[0,i+offset,j+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                         fisher[0,j+offset,i+offset] = -(pp - mp - pm + mm)/(4.0*epsilon*epsilon)
                     else: #else, run as normal
@@ -3215,7 +3231,7 @@ def get_fisher_eigenvectors(params, pta, QB_FP, QB_logl, T_chain=1, epsilon=1e-2
             #Filter nans and infs and replace them with 1s
             #this will imply that we will set the eigenvalue to 100 a few lines below
             #UPDATED so that 0s are also replaced with 1.0
-            if len(QB_logl.psrs) == 1: #if only 1 pulsar, run this
+            if len(pta.pulsars) == 1: #if only 1 pulsar, run this
                 FISHER = np.where(np.isfinite(fisher[0,:,:]) * (fisher[0,:,:]!=0.0), fisher[0,:,:], 1.0)
                 if not np.array_equal(FISHER, fisher[0,:,:]):
                     print("Changed some nan elements in the Fisher matrix to 1.0")
