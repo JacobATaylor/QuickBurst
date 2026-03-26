@@ -42,7 +42,7 @@ Once these tau scans have been created, we can start a run. The main analysis co
 * Open `QuickBurst.py` or `QuickBurst.ipynb`.
 * Pass in: 1) `data.pkl`, 2) `noise_dictionary.json` (or as a filepath), 3) `noise_transient_tau_scan.pkl`, and 4) `GW_signal_wavelet_tau_scan.pkl`.
 
-When starting your run, **check the `run_qb()` doc-string to ensure your model parameters are properly set (either fixed, varied, or not included)**. For modifying number of samples:
+When starting your run, **check the `ChainParams()` and `run_qb()` doc-strings to ensure your model parameters are properly set (either fixed, varied, or not included)**. For modifying number of samples:
 * `N_slow` is the number of shape parameter updates to do.
 * `n_fast_to_slow` is the ratio of projection parameter to shape parameter updates. By default, this is set to `n_fast_to_slow = 10000`.
 * `n_fish_update` is a ratio of fisher matrix proposal updates to shape parameter updates. It is advised to leave this to be once or twice for a run if varying intrinsic pulsar noise parameters (`n_fish_update = int(N_slow/2)`). By default, this is set to `n_fish_update = int(N_slow/2)`.
