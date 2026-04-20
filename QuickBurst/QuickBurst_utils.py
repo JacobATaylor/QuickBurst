@@ -230,7 +230,7 @@ class ChainParams:
         #parameter names
         self.param_names = self.pta.param_names
         self.num_params = len(self.param_names)
-        self.Ts = self.pta.get_basis()
+        self.Ts = List(self.pta.get_basis())
 
     def summary(self):
         """Print a summary of shared chain parameters."""

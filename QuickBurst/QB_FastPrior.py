@@ -505,7 +505,7 @@ def calculate_snr_prior_value(rho, wave_rho_star = 5, glitch_rho_star = 3, signa
 ##############################################
 @njit(fastmath=True, parallel=False)
 def compute_signal_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_glitch, wavelet_iter, FPI, wavelet_amp_prior, wavelet_log_amp_range, 
-                          toas, residuals, pos, sigmas, Npsr, MMs, NN, invTN, CholSigma, 
+                          toas, residuals, pos, sigmas, Npsr, MMs, NN, Ts, CholSigma, 
                           Ndiag_array, wavelet_prm, glitch_prm, glitch_pulsars, 
                           glitch_pulsars_previous, projection_step = False):
     #Set prior constants
@@ -516,7 +516,7 @@ def compute_signal_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_
     #Draw signal snr and new point
     rho = sample_signal_snr(new_point, wave_rho_star, glitch_indx, wavelet_indx, n_wavelet, n_glitch, wavelet_iter, FPI,
                 wavelet_amp_prior, wavelet_log_amp_range, toas,
-                residuals, Npsr, pos, sigmas, MMs, NN, invTN, CholSigma, Ndiag_array,
+                residuals, Npsr, pos, sigmas, MMs, NN, Ts, CholSigma, Ndiag_array,
                 wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous,
                 projection_step = projection_step)
 
@@ -541,7 +541,7 @@ def compute_signal_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_
 @njit(fastmath=True, parallel=False)
 def compute_glitch_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_glitch, glitch_iter,glitch_amp_prior, glitch_log_amp_range, 
                     toas, residuals, Npsr, pos, sigmas, MMs, NN, wavelet_prm, glitch_prm,
-                    glitch_pulsars, glitch_pulsars_previous, invTN, CholSigma, 
+                    glitch_pulsars, glitch_pulsars_previous, Ts, CholSigma, 
                     Ndiag, projection_step=False, prior_recovery=False):
     
     glitch_rho_star = 3.0
@@ -550,7 +550,7 @@ def compute_glitch_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_
 
     rho = sample_glitch_snr(new_point, glitch_rho_star, glitch_indx, wavelet_indx, n_wavelet, n_glitch, glitch_iter, glitch_amp_prior,  glitch_log_amp_range, 
                     toas, residuals, Npsr, pos, sigmas, MMs, NN, wavelet_prm, glitch_prm, 
-                    glitch_pulsars, glitch_pulsars_previous, invTN, CholSigma, Ndiag, 
+                    glitch_pulsars, glitch_pulsars_previous, Ts, CholSigma, Ndiag, 
                     projection_step=projection_step)
 
     # Minimal numeric checks
@@ -576,7 +576,7 @@ def compute_glitch_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_
 @njit(fastmath={'reassoc': True, 'nsz': True, 'arcp': True, 'contract': True, 'afn': True}, parallel=False)
 def sample_glitch_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, n_glitch, glitch_iter, glitch_amp_prior, glitch_log_amp_range, 
                     toas, residuals, Npsr, pos, sigmas, MMs, NN, wavelet_prm, glitch_prm, glitch_pulsars,
-                    glitch_pulsars_previous, invTN, CholSigma, Ndiag,
+                    glitch_pulsars_previous, Ts, CholSigma, Ndiag,
                     projection_step = False):
     
     """
@@ -612,7 +612,7 @@ def sample_glitch_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
         #Set current transient being updated to 1
         dif_flag[n_wavelet + glitch_iter] = 1.0
         
-        _, MMs = qb_like.get_M_N(toas, residuals, Npsr, MMs, NN, invTN, CholSigma, Ndiag, n_wavelet, 
+        _, MMs = qb_like.get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag, n_wavelet, 
                                n_glitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag)
 
     SNR = compute_glitch_snr(coeffs, round(new_point[int(glitch_indx[glitch_iter, 3])]), MMs, n_wavelet, glitch_iter)
@@ -656,6 +656,7 @@ def sample_glitch_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
         
         # Escape hatch if rejection sampling takes too long
         if k > 10000:
+            print("[DRAW_SINGLE GLITCH] WARNING: Rejection sampling exceeded 10000 iterations! Setting SNR=0")
             SNR = 0.0
             break
     return SNR
@@ -666,7 +667,7 @@ def sample_glitch_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
 
 @njit(fastmath=True, parallel=False)
 def sample_signal_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, n_glitch, wavelet_iter, FPI, wavelet_amp_prior, wavelet_log_amp_range, toas, residuals, 
-                    Npsr, pos, sigmas, MMs, NN, invTN, CholSigma, Ndiag, wavelet_prm,
+                    Npsr, pos, sigmas, MMs, NN, Ts, CholSigma, Ndiag, wavelet_prm,
                     glitch_prm, glitch_pulsars, glitch_pulsars_previous, projection_step = False):
     """
     Method for drawing joint amplitude and GW burst wavelet snr proposls. 
@@ -695,7 +696,7 @@ def sample_signal_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
 
         #Set current transient being updated to 1
         dif_flag[wavelet_iter] = 1.0
-        _, MMs = qb_like.get_M_N(toas, residuals, Npsr, MMs, NN, invTN, CholSigma, Ndiag, n_wavelet, 
+        _, MMs = qb_like.get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag, n_wavelet, 
                                n_glitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag)
     
     SNR = compute_signal_snr(coeffs, MMs, wavelet_iter)
@@ -745,6 +746,7 @@ def sample_signal_snr(new_point, SNRpeak, glitch_indx, wavelet_indx, n_wavelet, 
         k += 1
         # Escape hatch if rejection sampling takes too long
         if k > 10000:
+            print("[DRAW_SINGLE WAVELET] WARNING: Rejection sampling exceeded 10000 iterations! Setting SNR=0")
             SNR = 0.0
             break
 
