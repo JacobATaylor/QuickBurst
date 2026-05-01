@@ -103,11 +103,14 @@ class QuickBurst:
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             self.CholSigma.append(chol_Sigma)
 
+        self.TN_residuals = List([np.ascontiguousarray(self.Ts[ii].T) @ (self.Ndiag[ii] * self.residuals[ii])
+                                  for ii in range(self.Npsr)])
+
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
         self.rn_vary = rn_vary
         self.no_step = False
-        self.resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.residuals, self.Ts, self.Ndiag, temp_logdetphi, self.CholSigma))
+        self.resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.residuals, self.Ndiag, self.TN_residuals, temp_logdetphi, self.CholSigma))
         self.resres_logdet_previous = np.copy(self.resres_logdet)
 
         #check if we are doing a prior recovery runs
@@ -207,7 +210,7 @@ class QuickBurst:
         if self.Nwavelet + self.Nglitch == 0:
 
             d0 = dict((k, v) for k, v in zip(self.pta_param_names, x0))
-            self.params_previous = np.copy(self.params)
+            self.params_previous = dict(self.params)
             self.params = d0
 
             try:
@@ -271,7 +274,7 @@ class QuickBurst:
 
                 dif_flag[self.Nwavelet_previous] = 1
                 #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
-                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag,
+                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
                                             self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
         elif glitch_change:
             remove_index += n_wavelet
@@ -299,7 +302,7 @@ class QuickBurst:
                     self.MMs[ii, :, -2:] = glitch_copy_MM_2
             elif adding:
                 dif_flag[self.Nwavelet_previous+self.Nglitch_previous] = 1 #should index to the value after the currently active parts
-                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag,
+                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
                                             self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
             #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
         #fast calculation of the lnlikelihood
@@ -343,6 +346,8 @@ class QuickBurst:
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
             (chol_Sigma, lower) = sl.cho_factor(Sigma.T, lower = True, overwrite_a = True, check_finite = False)
             self.CholSigma.append(chol_Sigma)
+        self.TN_residuals = List([np.ascontiguousarray(self.Ts[ii].T) @ (self.Ndiag[ii] * self.residuals[ii])
+                                  for ii in range(self.Npsr)])
         return temp_logdetphi
 
     #####
@@ -377,7 +382,7 @@ class QuickBurst:
         if self.rn_vary or self.wn_vary:
 
             d0 = dict((k, v) for k, v in zip(self.pta_param_names, x0))
-            self.params_previous = np.copy(self.params)
+            self.params_previous = dict(self.params)
             self.params = d0
 
         if self.wn_vary:
@@ -431,7 +436,7 @@ class QuickBurst:
                 return (-1.0)*np.inf
             dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
-            self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag,
+            self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
                                             self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
 
         #update intrinsic likelihood terms when updating RN
@@ -441,7 +446,7 @@ class QuickBurst:
             for (l,m) in self.pta.get_rNr_logdet(self.params): #Only using this for logdet term because the rNr term removes the deterministic signal during generation
                 self.logdet += m
         if self.rn_vary or self.wn_vary:
-            resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.residuals, self.Ts, self.Ndiag, temp_logdetphi, self.CholSigma))
+            resres_logdet = np.copy(self.logdet + resres_logdet_calc(self.Npsr, self.residuals, self.Ndiag, self.TN_residuals, temp_logdetphi, self.CholSigma))
             self.resres_logdet_previous = np.copy(self.resres_logdet)
             self.resres_logdet = np.copy(resres_logdet)
         else:
@@ -460,7 +465,7 @@ class QuickBurst:
             self.glitch_saved = np.copy(self.glitch_prm)
         else:
             if vary_red_noise or vary_white_noise:
-                self.params = np.copy(self.params_previous)
+                self.params = dict(self.params_previous)
                 self.resres_logdet = np.copy(self.resres_logdet_previous)
             if vary_white_noise:
                 self.Nvecs = np.copy(self.Nvecs_previous)
@@ -480,7 +485,7 @@ class QuickBurst:
 #generates the MM and NN matrixies from filter functions
 #####
 @njit(parallel=False, fastmath=True)
-def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, Nwavelet, Nglitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag):
+def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, TN_residuals, Nwavelet, Nglitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag):
     """
     numba jitted Function to calculate inner products between pulsar residuals and filter functions, as well as between filter functions.
 
@@ -543,7 +548,7 @@ def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, Nwavelet
                 invCholSigmaTNfilter[j + Nwavelet, 0] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_cos[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
                 invCholSigmaTNfilter[j + Nwavelet, 1] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_sin[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
 
-        invCholSigmaTNres = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * residuals[ii]), lower_a = True, trans_a = False, overwrite_b = False)
+        invCholSigmaTNres = solve_triangular(np.asarray(CholSigma[ii]), TN_residuals[ii], lower_a = True, trans_a = False, overwrite_b = False)
 
         #update the full N and M when we are looking at a pulsar that contains some glitches (due to cross terms)
         if ii in glitch_pulsars or ii in glitch_pulsars_previous:
@@ -690,17 +695,17 @@ def get_parameters(x0, glitch_prm, wavelet_prm, glitch_indx, wavelet_indx, Nglit
 #updating non-signal likelihood terms as we go
 #####
     #@njit(parallel=True,fastmath=True) #was left unjitted
-def resres_logdet_calc(Npsr, residuals, Ts, Ndiag, temp_logdetphi, chol_Sigma):
+def resres_logdet_calc(Npsr, residuals, Ndiag, TN_residuals, temp_logdetphi, chol_Sigma):
     '''
     Function to calculate terms in (res|res) + log(2*pi*C) in likelihood.
+    TN_residuals[i] = T_i^T N_i^{-1} r_i, precomputed in QuickBurst.__init__ and TN_calculator.
     '''
     rNr_loc = np.zeros(Npsr)
     logdet_array = np.zeros(Npsr)
     for i in range(Npsr):
         aNb = residuals[i] * Ndiag[i] @ residuals[i]
 
-        Ts_i_T = np.ascontiguousarray(Ts[i].T)
-        SigmaTNrProd = solve_triangular(chol_Sigma[i], Ts_i_T @ (Ndiag[i] * residuals[i]), lower_a = True, trans_a = False, overwrite_b = False)
+        SigmaTNrProd = solve_triangular(chol_Sigma[i], TN_residuals[i], lower_a = True, trans_a = False, overwrite_b = False)
         dotSigmaTNr = SigmaTNrProd.T @ SigmaTNrProd
         rNr_loc[i] = aNb - dotSigmaTNr
 

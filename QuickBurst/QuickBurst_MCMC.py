@@ -593,15 +593,16 @@ def run_qb(N_slow, T_max, n_chain, chain_params,
                     #compute snr value
                     signal_snr[j, 0, nw] = compute_signal_snr(QB_Info[j].sigmas, QB_Info[j].MMs, nw)
 
-                    #draw snr prior value
-                    snr_lnprior[j,0,nw] = calculate_snr_prior_value(signal_snr[j,0,nw], wave_rho_star = 5, glitch_rho_star = 3, signal_type='wavelet')
+                    #draw snr prior value; clamp -inf (degenerate init) to 0
+                    val = calculate_snr_prior_value(signal_snr[j,0,nw], wave_rho_star = 5, glitch_rho_star = 3, signal_type='wavelet')
+                    snr_lnprior[j,0,nw] = 0.0 if not np.isfinite(val) else val
 
                 for ng in range(n_glitch):
                     #compute snr
-
                     transient_snr[j, 0, ng] = compute_glitch_snr(QB_logl[j].sigmas, round(first_sample[glitch_indx[ng,3]]), QB_logl[j].MMs, n_wavelet, ng)
-                    #draw snr prior value
-                    snr_lnprior[j, 0, max_n_wavelet + ng] = calculate_snr_prior_value(transient_snr[j,0, ng], wave_rho_star = 5, glitch_rho_star = 3, signal_type='glitch')
+                    #draw snr prior value; clamp -inf (degenerate init) to 0 to avoid poisoning fast_jump acceptance
+                    val = calculate_snr_prior_value(transient_snr[j,0, ng], wave_rho_star = 5, glitch_rho_star = 3, signal_type='glitch')
+                    snr_lnprior[j, 0, max_n_wavelet + ng] = 0.0 if not np.isfinite(val) else val
     
     #setting up array for the fisher eigenvalues
     #Default case for fisher eigenvectors (only steps along one parameter at a time)
@@ -1222,8 +1223,8 @@ def do_tau_scan_global_jump(n_chain, pta, FPI, QB_logl, QB_Info,
             #Draw snr prior, amplitudes, and modify new_point for selected wavelet
             new_signal_snr[wavelet_select], new_snr_lnprior[wavelet_select] = compute_signal_snr_prior(new_point, QB_Info[j].glitch_indx, QB_Info[j].wavelet_indx, n_wavelet, n_glitch, wavelet_select, FPI, wavelet_amp_prior, wavelet_log_amp_range,
                                                                     QB_logl[j].toas, QB_logl[j].residuals, QB_logl[j].pos, QB_logl[j].sigmas, QB_logl[0].Npsr,
-                                                                    np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN), QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma),
-                                                                    copy_ragged(QB_logl[j].Ndiag), np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
+                                                                    np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN), QB_logl[j].Ts, QB_logl[j].CholSigma,
+                                                                    QB_logl[j].Ndiag, QB_logl[j].TN_residuals, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
                                                                     np.copy(QB_logl[j].glitch_pulsars_previous), projection_step = False)
             log10_h_new = new_point[wavelet_indx[wavelet_select,4]]
             log10_h_cross_new = new_point[wavelet_indx[wavelet_select,5]]
@@ -1420,8 +1421,8 @@ def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,
                                                                     QB_logl[j].toas, QB_logl[j].residuals, QB_Info[0].Npsr, QB_Info[j].pos,
                                                                     np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN), np.copy(QB_logl[j].wavelet_prm),
                                                                     np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                                                                    QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma), copy_ragged(QB_logl[j].Ndiag), projection_step = False)
-            
+                                                                    QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, projection_step = False)
+
             log10_h_new = new_point[glitch_indx[glitch_select,1]]
 
         log_L = QB_logl[j].get_lnlikelihood(new_point)
@@ -1672,8 +1673,8 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 QB_logl[j].toas, QB_logl[j].residuals, QB_logl[j].pos,
                 np.copy(QB_logl[j].sigmas), QB_logl[j].Npsr,
                 np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
-                QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma),
-                copy_ragged(QB_logl[j].Ndiag),
+                QB_logl[j].Ts, QB_logl[j].CholSigma,
+                QB_logl[j].Ndiag, QB_logl[j].TN_residuals,
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
                 projection_step=False)
@@ -1697,7 +1698,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma), copy_ragged(QB_logl[j].Ndiag),
+                QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals,
                 projection_step=False)
 
         new_log_prior = QB_FastPrior.get_lnprior_helper(new_point, FPI.uniform_par_ids, FPI.uniform_lows, FPI.uniform_highs,\
@@ -1950,9 +1951,9 @@ def fast_jump(n_chain, FPI, QB_Info, samples, i,
                 new_signal_snr[wavelet_select] = compute_signal_snr(QB_Info[j].sigmas, QB_Info[j].MMs, wavelet_iter=wavelet_select)
                 #Compute snr prior value
                 new_snr_lnprior[wavelet_select] = calculate_snr_prior_value(new_signal_snr[wavelet_select], wave_rho_star = 5, glitch_rho_star = 3, signal_type='wavelet')
-
-                log_acc_ratio += np.sum(new_snr_lnprior)
-                log_acc_ratio -= np.sum(snr_lnprior[j, i, :])
+                
+                log_acc_ratio += new_snr_lnprior[wavelet_select]
+                log_acc_ratio -= snr_lnprior[j, i, wavelet_select]
 
 
             if what_to_vary == 'GLITCH':
@@ -1961,9 +1962,9 @@ def fast_jump(n_chain, FPI, QB_Info, samples, i,
                                          QB_Info[j].Nwavelet, glitch_iter=glitch_select)
                 #Compute snr prior value
                 new_snr_lnprior[FPI.max_n_wavelet + glitch_select] = calculate_snr_prior_value(new_transient_snr[glitch_select], wave_rho_star = 5, glitch_rho_star = 3, signal_type='glitch')
-
-                log_acc_ratio += np.sum(new_snr_lnprior)
-                log_acc_ratio -= np.sum(snr_lnprior[j, i, :])
+                
+                log_acc_ratio += new_snr_lnprior[FPI.max_n_wavelet + glitch_select]
+                log_acc_ratio -= snr_lnprior[j, i, FPI.max_n_wavelet + glitch_select]
 
             #Instead of modifying amplitudes, simply add/subtract snr prior from log acceptance ratio
             new_total_sig_snr += compute_total_signal_snr(QB_Info[j].sigmas, QB_Info[j].MMs, n_wavelet)
@@ -2145,8 +2146,8 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
                 #Draw snr prior, amplitudes, and modify new_point for selected wavelet
                 new_signal_snr[n_wavelet], new_snr_lnprior[n_wavelet] = compute_signal_snr_prior(new_point, np.copy(QB_Info[j].glitch_indx), np.copy(QB_Info[j].wavelet_indx), n_wavelet+1, n_glitch, n_wavelet, FPI, wavelet_amp_prior, wavelet_log_amp_range,
                                                                         QB_logl[j].toas, QB_logl[j].residuals, np.copy(QB_logl[j].pos), sig_loc, QB_logl[0].Npsr,
-                                                                        MMs_loc, NN_loc, QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma),
-                                                                        copy_ragged(QB_logl[j].Ndiag), np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
+                                                                        MMs_loc, NN_loc, QB_logl[j].Ts, QB_logl[j].CholSigma,
+                                                                        QB_logl[j].Ndiag, QB_logl[j].TN_residuals, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
                                                                         np.copy(QB_logl[j].glitch_pulsars_previous), projection_step = False)
 
                 new_total_sig_snr = compute_total_signal_snr(np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), n_wavelet+1)
@@ -2477,8 +2478,8 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                                                                         glitch_amp_prior, glitch_log_amp_range, QB_logl[j].toas, QB_logl[j].residuals, QB_Info[0].Npsr, QB_Info[j].pos,
                                                                         sig_loc, MMs_loc, NN_loc, np.copy(QB_logl[j].wavelet_prm),
                                                                         np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                                                                        QB_logl[j].Ts, copy_ragged(QB_logl[j].CholSigma), copy_ragged(QB_logl[j].Ndiag), projection_step = False)
-                
+                                                                        QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, projection_step = False)
+
                 # #Log likelihood needs to be recomputed after drawing new amplitude values for the chosen GW wavelet, but can do quickly.
                 # log_L = QB_logl[j].get_lnlikelihood(new_point)
                 
