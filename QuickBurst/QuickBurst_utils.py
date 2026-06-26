@@ -187,12 +187,7 @@ class ChainParams:
         self.tau_min = tau_min
 
         #Make PTA
-        (self.pta, self.QB_FP, self.QB_FPI,
-         self.glitch_indx, self.wavelet_indx,
-         self.per_puls_indx, self.per_puls_rn_indx,
-         self.per_puls_wn_indx, self.rn_indx,
-         self.all_noiseparam_idxs,
-         self.num_per_puls_param_list) = get_pta(
+        get_pta_result = get_pta(
             psrs,
             vary_white_noise=vary_white_noise,
             include_equad=include_equad,
@@ -227,10 +222,17 @@ class ChainParams:
             prior_recovery=prior_recovery,
         )
 
+        (self.pta, self.QB_FP, self.QB_FPI,
+         self.glitch_indx, self.wavelet_indx,
+         self.per_puls_indx, self.per_puls_rn_indx,
+         self.per_puls_wn_indx, self.rn_indx,
+         self.all_noiseparam_idxs,
+         self.num_per_puls_param_list) = get_pta_result
+
         #parameter names
         self.param_names = self.pta.param_names
         self.num_params = len(self.param_names)
-        self.Ts = List(self.pta.get_basis())
+        self.Ts = List([np.asfortranarray(x) for x in self.pta.get_basis()])
 
     def summary(self):
         """Print a summary of shared chain parameters."""

@@ -103,8 +103,11 @@ class QuickBurst:
             chol_Sigma,lower = sl.cho_factor(Sigma.T,lower=True,overwrite_a=True,check_finite=False)
             self.CholSigma.append(chol_Sigma)
 
-        self.TN_residuals = List([np.ascontiguousarray(self.Ts[ii].T) @ (self.Ndiag[ii] * self.residuals[ii])
+        self.TN_residuals = List([self.Ts[ii].T @ (self.Ndiag[ii] * self.residuals[ii])
                                   for ii in range(self.Npsr)])
+        self.invCholSigmaTNres = List([
+            solve_triangular(self.CholSigma[ii], self.TN_residuals[ii], lower_a=True, trans_a=False, overwrite_b=False)
+            for ii in range(self.Npsr)])
 
         #save likelihood terms if updating is not necessary
         self.wn_vary = wn_vary
@@ -168,6 +171,27 @@ class QuickBurst:
         self.sigmas = np.zeros((self.Npsr, Nwavelet_max + Nglitch_max, 2))
         self.sigmas_previous = np.zeros((self.Npsr, Nwavelet_max + Nglitch_max, 2))
 
+        #Persistent filter cache arrays for get_M_N optimization
+        max_filters = Nwavelet_max + Nglitch_max
+        self.Filt_cos = List([np.zeros((max_filters, len(self.toas[ii]))) for ii in range(self.Npsr)])
+        self.Filt_sin = List([np.zeros((max_filters, len(self.toas[ii]))) for ii in range(self.Npsr)])
+        self.invCholSigmaTNfilter = List([np.zeros((max_filters, 2, self.CholSigma[ii].shape[0])) for ii in range(self.Npsr)])
+
+        # Pre-allocated save buffers for filter cache restore on rejection
+        self._saved_Filt_cos = [np.copy(self.Filt_cos[ii]) for ii in range(self.Npsr)]
+        self._saved_Filt_sin = [np.copy(self.Filt_sin[ii]) for ii in range(self.Npsr)]
+        self._saved_invCSTNf = [np.copy(self.invCholSigmaTNfilter[ii]) for ii in range(self.Npsr)]
+        self._filter_cache_saved = False
+
+    def save_filter_cache(self):
+        """Save filter cache before SNR prior modifies it. Idempotent until cleared by save_values."""
+        if not self._filter_cache_saved:
+            for ii in range(self.Npsr):
+                np.copyto(self._saved_Filt_cos[ii], self.Filt_cos[ii])
+                np.copyto(self._saved_Filt_sin[ii], self.Filt_sin[ii])
+                np.copyto(self._saved_invCSTNf[ii], self.invCholSigmaTNfilter[ii])
+            self._filter_cache_saved = True
+
     ######
     #Function that may be useful to help modify the M and N matrices without recalculating them
     #Specifically for cases of changing/adding glitches and wavelets
@@ -204,6 +228,8 @@ class QuickBurst:
         #Save previous M and N states
         np.copyto(self.NN_previous, self.NN)
         np.copyto(self.MMs_previous, self.MMs)
+        # Save filter cache before RJ modification (skip if already saved by save_filter_cache)
+        self.save_filter_cache()
         #Need to make sure we update inverse cholesky matrix when in the edge case of 0 wavelets and 0 glitches
         #Cholesky matrix changes when we add wavelets/glitches, but still doesn't trigger when varying noise in this case.
         ####### start of cov calc stuff #######
@@ -254,6 +280,15 @@ class QuickBurst:
                     self.MMs[ii, :, :-2] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=1)
                     #Append col to end
                     self.MMs[ii, :, -2:] = wavelet_copy_MM_2
+                    # Shift filter cache down to remove entry at remove_index
+                    n_total_prev = self.Nwavelet_previous + self.Nglitch_previous
+                    if remove_index < n_total_prev - 1:
+                        self.Filt_cos[ii][remove_index:n_total_prev-1] = np.copy(self.Filt_cos[ii][remove_index+1:n_total_prev])
+                        self.Filt_sin[ii][remove_index:n_total_prev-1] = np.copy(self.Filt_sin[ii][remove_index+1:n_total_prev])
+                        self.invCholSigmaTNfilter[ii][remove_index:n_total_prev-1] = np.copy(self.invCholSigmaTNfilter[ii][remove_index+1:n_total_prev])
+                    self.Filt_cos[ii][n_total_prev-1] = 0
+                    self.Filt_sin[ii][n_total_prev-1] = 0
+                    self.invCholSigmaTNfilter[ii][n_total_prev-1] = 0
 
             elif adding:
                 #in M and N matrices, shift over all glitch terms in matrices, then dif flag index is only for new wavelet.
@@ -274,8 +309,9 @@ class QuickBurst:
 
                 dif_flag[self.Nwavelet_previous] = 1
                 #recalculate parts of MM and NN if adding wavelet, or shift around stuff if removing
-                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
-                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
+                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals, self.invCholSigmaTNres,
+                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag,
+                                            self.Filt_cos, self.Filt_sin, self.invCholSigmaTNfilter)
         elif glitch_change:
             remove_index += n_wavelet
             if not adding:
@@ -300,10 +336,20 @@ class QuickBurst:
                     self.MMs[ii, :, :-2] = np.delete(self.MMs[ii], (2*remove_index,2*remove_index+1),axis=1)
                     #Append col to end
                     self.MMs[ii, :, -2:] = glitch_copy_MM_2
+                    # Shift filter cache down to remove glitch at remove_index
+                    n_total_prev = self.Nwavelet_previous + self.Nglitch_previous
+                    if remove_index < n_total_prev - 1:
+                        self.Filt_cos[ii][remove_index:n_total_prev-1] = np.copy(self.Filt_cos[ii][remove_index+1:n_total_prev])
+                        self.Filt_sin[ii][remove_index:n_total_prev-1] = np.copy(self.Filt_sin[ii][remove_index+1:n_total_prev])
+                        self.invCholSigmaTNfilter[ii][remove_index:n_total_prev-1] = np.copy(self.invCholSigmaTNfilter[ii][remove_index+1:n_total_prev])
+                    self.Filt_cos[ii][n_total_prev-1] = 0
+                    self.Filt_sin[ii][n_total_prev-1] = 0
+                    self.invCholSigmaTNfilter[ii][n_total_prev-1] = 0
             elif adding:
                 dif_flag[self.Nwavelet_previous+self.Nglitch_previous] = 1 #should index to the value after the currently active parts
-                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
-                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
+                self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals, self.invCholSigmaTNres,
+                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag,
+                                            self.Filt_cos, self.Filt_sin, self.invCholSigmaTNfilter)
             #recalculate parts of MM and NN if adding glitch, or shift around stuff if removing
         #fast calculation of the lnlikelihood
         if self.prior_recovery:
@@ -346,8 +392,11 @@ class QuickBurst:
             Sigma = TNT + (np.diag(phiinv) if phiinv.ndim == 1 else phiinv)
             (chol_Sigma, lower) = sl.cho_factor(Sigma.T, lower = True, overwrite_a = True, check_finite = False)
             self.CholSigma.append(chol_Sigma)
-        self.TN_residuals = List([np.ascontiguousarray(self.Ts[ii].T) @ (self.Ndiag[ii] * self.residuals[ii])
+        self.TN_residuals = List([self.Ts[ii].T @ (self.Ndiag[ii] * self.residuals[ii])
                                   for ii in range(self.Npsr)])
+        self.invCholSigmaTNres = List([
+            solve_triangular(self.CholSigma[ii], self.TN_residuals[ii], lower_a=True, trans_a=False, overwrite_b=False)
+            for ii in range(self.Npsr)])
         return temp_logdetphi
 
     #####
@@ -436,8 +485,11 @@ class QuickBurst:
                 return (-1.0)*np.inf
             dif_flag = np.ones((self.Nwavelet + self.Nglitch))
         if 1 in dif_flag:
-            self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals,
-                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag)
+            # Save filter cache before get_M_N modifies it (skip if already saved by save_filter_cache)
+            self.save_filter_cache()
+            self.NN, self.MMs = get_M_N(self.toas, self.residuals, self.Npsr, self.MMs, self.NN, self.Ts, self.CholSigma, self.Ndiag, self.TN_residuals, self.invCholSigmaTNres,
+                                            self.Nwavelet, self.Nglitch, self.wavelet_prm, self.glitch_prm, self.glitch_pulsars, self.glitch_pulsars_previous, dif_flag,
+                                            self.Filt_cos, self.Filt_sin, self.invCholSigmaTNfilter)
 
         #update intrinsic likelihood terms when updating RN
         if self.wn_vary:
@@ -463,6 +515,7 @@ class QuickBurst:
         if accept_new_step:
             self.wavelet_saved = np.copy(self.wavelet_prm)
             self.glitch_saved = np.copy(self.glitch_prm)
+            self._filter_cache_saved = False
         else:
             if vary_red_noise or vary_white_noise:
                 self.params = dict(self.params_previous)
@@ -477,6 +530,13 @@ class QuickBurst:
             self.MMs = np.copy(self.MMs_previous)
             self.sigmas = np.copy(self.sigmas_previous)
             self.glitch_pulsars = np.copy(self.glitch_pulsars_previous)
+            # Restore filter cache on rejection
+            if self._filter_cache_saved:
+                for ii in range(self.Npsr):
+                    np.copyto(self.Filt_cos[ii], self._saved_Filt_cos[ii])
+                    np.copyto(self.Filt_sin[ii], self._saved_Filt_sin[ii])
+                    np.copyto(self.invCholSigmaTNfilter[ii], self._saved_invCSTNf[ii])
+                self._filter_cache_saved = False
             if rj_jump:
                 self.Nglitch = self.Nglitch_previous
                 self.Nwavelet = self.Nwavelet_previous
@@ -485,7 +545,7 @@ class QuickBurst:
 #generates the MM and NN matrixies from filter functions
 #####
 @njit(parallel=False, fastmath=True)
-def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, TN_residuals, Nwavelet, Nglitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag):
+def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, TN_residuals, invCholSigmaTNres, Nwavelet, Nglitch, wavelet_prm, glitch_prm, glitch_pulsars, glitch_pulsars_previous, dif_flag, Filt_cos, Filt_sin, invCholSigmaTNfilter):
     """
     numba jitted Function to calculate inner products between pulsar residuals and filter functions, as well as between filter functions.
 
@@ -522,60 +582,62 @@ def get_M_N(toas, residuals, Npsr, MMs, NN, Ts, CholSigma, Ndiag_array, TN_resid
         List that checks if GW signal wavelet and/or noise transient wavelet shape parameters changed in current MCMC step.
     """
     for ii in range(Npsr):
-        invCholSigmaTNfilter = np.zeros((Nwavelet + Nglitch, 2, len(np.asarray(CholSigma[ii])[:, 0])))
-        Filt_cos = np.zeros((Nwavelet + Nglitch, len(toas[ii])))
-        Filt_sin = np.zeros((Nwavelet + Nglitch, len(toas[ii])))
+        Filt_cos_ii = Filt_cos[ii]
+        Filt_sin_ii = Filt_sin[ii]
+        invCSTNf_ii = invCholSigmaTNfilter[ii]
 
-        Ts_ii_T = np.ascontiguousarray(Ts[ii].T)
+        Ts_ii_T = Ts[ii].T
         Ndiag_ii = Ndiag_array[ii]
 
         for s in range(Nwavelet):
-            dt = toas[ii] - wavelet_prm[(s, 7)]
-            envelope = np.exp(-1 * (dt / wavelet_prm[(s, 6)]) ** 2)
-            phase = 2 * np.pi * wavelet_prm[(s, 0)] * dt
-            Filt_cos[s] = envelope * np.cos(phase)
-            Filt_sin[s] = envelope * np.sin(phase)
-            invCholSigmaTNfilter[s, 0] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_cos[s]), lower_a = True, trans_a = False, overwrite_b = False)
-            invCholSigmaTNfilter[s, 1] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_sin[s]), lower_a = True, trans_a = False, overwrite_b = False)
+            if dif_flag[s] == 1:
+                dt = toas[ii] - wavelet_prm[(s, 7)]
+                envelope = np.exp(-1 * (dt / wavelet_prm[(s, 6)]) ** 2)
+                phase = 2 * np.pi * wavelet_prm[(s, 0)] * dt
+                Filt_cos_ii[s] = envelope * np.cos(phase)
+                Filt_sin_ii[s] = envelope * np.sin(phase)
+                invCSTNf_ii[s, 0] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_cos_ii[s]), lower_a = True, trans_a = False, overwrite_b = False)
+                invCSTNf_ii[s, 1] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_sin_ii[s]), lower_a = True, trans_a = False, overwrite_b = False)
 
         for j in range(Nglitch):
             if (ii - 0.5 <= glitch_prm[j, 3] <= ii + 0.5):
-                dt = toas[ii] - glitch_prm[(j, 4)]
-                envelope = np.exp(-1 * (dt / glitch_prm[(j, 5)]) ** 2)
-                phase = 2 * np.pi * glitch_prm[(j, 0)] * dt
-                Filt_cos[j + Nwavelet] = envelope * np.cos(phase)
-                Filt_sin[j + Nwavelet] = envelope * np.sin(phase)
-                invCholSigmaTNfilter[j + Nwavelet, 0] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_cos[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
-                invCholSigmaTNfilter[j + Nwavelet, 1] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_sin[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
+                if dif_flag[j + Nwavelet] == 1:
+                    dt = toas[ii] - glitch_prm[(j, 4)]
+                    envelope = np.exp(-1 * (dt / glitch_prm[(j, 5)]) ** 2)
+                    phase = 2 * np.pi * glitch_prm[(j, 0)] * dt
+                    Filt_cos_ii[j + Nwavelet] = envelope * np.cos(phase)
+                    Filt_sin_ii[j + Nwavelet] = envelope * np.sin(phase)
+                    invCSTNf_ii[j + Nwavelet, 0] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_cos_ii[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
+                    invCSTNf_ii[j + Nwavelet, 1] = solve_triangular(np.asarray(CholSigma[ii]), Ts_ii_T @ (Ndiag_ii * Filt_sin_ii[j + Nwavelet]), lower_a = True, trans_a = False, overwrite_b = False)
 
-        invCholSigmaTNres = solve_triangular(np.asarray(CholSigma[ii]), TN_residuals[ii], lower_a = True, trans_a = False, overwrite_b = False)
+        invCholSigmaTNres_ii = invCholSigmaTNres[ii]
 
         #update the full N and M when we are looking at a pulsar that contains some glitches (due to cross terms)
         if ii in glitch_pulsars or ii in glitch_pulsars_previous:
             #populate MM,NN with wavelets and glitches (including cross terms)
             for k in range(Nwavelet + Nglitch):
                 if dif_flag[k] == 1: #check which terms have actualy changed before changing M and N
-                    NN[ii, 0+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0] #manualy calculate dot product of aNb - aNTSigmaTNb
-                    NN[ii, 1+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
+                    NN[ii, 0+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_cos_ii[k] - invCholSigmaTNres_ii.T@invCSTNf_ii[k,0]
+                    NN[ii, 1+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_sin_ii[k] - invCholSigmaTNres_ii.T@invCSTNf_ii[k,1]
                 for l in range(Nwavelet + Nglitch):
                     if dif_flag[k] == 1 or dif_flag[l] == 1:
-                        MMs[ii, 0+2*k, 0+2*l] = Filt_cos[k]*Ndiag_array[ii]@Filt_cos[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,0]
-                        MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag_array[ii]@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
-                        MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag_array[ii]@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
-                        MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag_array[ii]@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
+                        MMs[ii, 0+2*k, 0+2*l] = Filt_cos_ii[k]*Ndiag_array[ii]@Filt_cos_ii[l] - invCSTNf_ii[k,0].T@invCSTNf_ii[l,0]
+                        MMs[ii, 1+2*k, 0+2*l] = Filt_sin_ii[k]*Ndiag_array[ii]@Filt_cos_ii[l] - invCSTNf_ii[k,1].T@invCSTNf_ii[l,0]
+                        MMs[ii, 0+2*k, 1+2*l] = Filt_cos_ii[k]*Ndiag_array[ii]@Filt_sin_ii[l] - invCSTNf_ii[k,0].T@invCSTNf_ii[l,1]
+                        MMs[ii, 1+2*k, 1+2*l] = Filt_sin_ii[k]*Ndiag_array[ii]@Filt_sin_ii[l] - invCSTNf_ii[k,1].T@invCSTNf_ii[l,1]
         #only update wavelets if there is now glitch in this pulsar
         else:
             #populate just wavelet parts of MM,NN
             for k in range(Nwavelet):
                 if dif_flag[k] == 1: #check which terms have actually changed before changing M and N
-                    NN[ii, 0+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_cos[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,0]
-                    NN[ii, 1+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_sin[k] - invCholSigmaTNres.T@invCholSigmaTNfilter[k,1]
+                    NN[ii, 0+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_cos_ii[k] - invCholSigmaTNres_ii.T@invCSTNf_ii[k,0]
+                    NN[ii, 1+2*k] = residuals[ii]*Ndiag_array[ii]@Filt_sin_ii[k] - invCholSigmaTNres_ii.T@invCSTNf_ii[k,1]
                 for l in range(Nwavelet):
                     if dif_flag[k] == 1 or dif_flag[l] == 1:
-                        MMs[ii, 0+2*k, 0+2*l] = Filt_cos[k]*Ndiag_array[ii]@Filt_cos[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,0]
-                        MMs[ii, 1+2*k, 0+2*l] = Filt_sin[k]*Ndiag_array[ii]@Filt_cos[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,0]
-                        MMs[ii, 0+2*k, 1+2*l] = Filt_cos[k]*Ndiag_array[ii]@Filt_sin[l] - invCholSigmaTNfilter[k,0].T@invCholSigmaTNfilter[l,1]
-                        MMs[ii, 1+2*k, 1+2*l] = Filt_sin[k]*Ndiag_array[ii]@Filt_sin[l] - invCholSigmaTNfilter[k,1].T@invCholSigmaTNfilter[l,1]
+                        MMs[ii, 0+2*k, 0+2*l] = Filt_cos_ii[k]*Ndiag_array[ii]@Filt_cos_ii[l] - invCSTNf_ii[k,0].T@invCSTNf_ii[l,0]
+                        MMs[ii, 1+2*k, 0+2*l] = Filt_sin_ii[k]*Ndiag_array[ii]@Filt_cos_ii[l] - invCSTNf_ii[k,1].T@invCSTNf_ii[l,0]
+                        MMs[ii, 0+2*k, 1+2*l] = Filt_cos_ii[k]*Ndiag_array[ii]@Filt_sin_ii[l] - invCSTNf_ii[k,0].T@invCSTNf_ii[l,1]
+                        MMs[ii, 1+2*k, 1+2*l] = Filt_sin_ii[k]*Ndiag_array[ii]@Filt_sin_ii[l] - invCSTNf_ii[k,1].T@invCSTNf_ii[l,1]
     return NN, MMs
 
 @njit()

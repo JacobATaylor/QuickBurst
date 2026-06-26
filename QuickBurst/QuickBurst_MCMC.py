@@ -55,7 +55,7 @@ def run_qb(N_slow, T_max, n_chain, chain_params,
             SNR_prior=False, noisedict=None, jupyter_notebook=False,
             save_every_n=10, savepath=None, resume_from=None, start_from=None,
             n_status_update=100, n_fish_update=1000, n_fast_to_slow=1000, thin=100, 
-            write_run_parameters_to_file = True, run_configuration_directory = "", 
+            write_run_parameters_to_file = True, run_configuration_directory = "",
             run_configuration_file = ""):
     """
     Function to perform markov-chain monte carlo sampling with for generic GW burst signals. Utilizes Class Functions from QuickBurst_lnlike.
@@ -140,6 +140,15 @@ def run_qb(N_slow, T_max, n_chain, chain_params,
     :param run_configuration_file:
         The name of the file of that stores the run configuration. I recommend making it a similar name to the file the actual chain data is stored in. DONT ADD A FILE EXTENSION.
     """
+
+    # Limit OpenBLAS threads to physical cores to prevent hyperthreading
+    # contention. On machines with SMT/HT, OpenBLAS defaults to all logical CPUs.
+    try:
+        from threadpoolctl import threadpool_limits
+        n_physical = max(1, os.cpu_count() // 2)
+        threadpool_limits(limits=n_physical, user_api='blas')
+    except ImportError:
+        pass
 
     pulsars = chain_params.psrs
     pta = chain_params.pta
@@ -424,7 +433,7 @@ def run_qb(N_slow, T_max, n_chain, chain_params,
 
         #set up log_likelihood array
         log_likelihood = np.zeros((n_chain,save_every_n+1))
-        
+
         if SNR_prior:
             snr_lnprior = np.ascontiguousarray(np.zeros((n_chain, save_every_n+1, max_n_wavelet + max_n_glitch)))
             signal_snr = np.ascontiguousarray(np.zeros((n_chain, save_every_n+1, max_n_wavelet), dtype=np.float64))
@@ -806,11 +815,12 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                             f['transient_snr'].resize((f['transient_snr'].shape[1] + int((transient_snr.shape[1] - 1)/thin)), axis=1)
                             f['signal_snr'].resize((f['signal_snr'].shape[1] + int((signal_snr.shape[1] - 1)/thin)), axis=1)
                             f['total_signal_snr'].resize((f['total_signal_snr'].shape[1] + int((total_signal_snr.shape[1] - 1)/thin)), axis=1)
-                            
+
                             f['snr_lnprior'][:,-int((snr_lnprior.shape[1]-1)/thin):] = snr_lnprior[:,:-1:thin, :]
                             f['transient_snr'][:,-int((transient_snr.shape[1]-1)/thin):] = transient_snr[:,:-1:thin,:]
                             f['signal_snr'][:,-int((signal_snr.shape[1]-1)/thin):] = signal_snr[:,:-1:thin, :]
                             f['total_signal_snr'][:,-int((total_signal_snr.shape[1]-1)/thin):] = total_signal_snr[:,:-1:thin]
+
                 else:
                     #Creating h5df file at start of sampling if not resuming.
                     if resume_from is None:
@@ -829,6 +839,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                                 f.create_dataset('transient_snr', data=transient_snr[:,:-1:thin, :], compression="gzip", chunks=True, maxshape = (n_chain, None, transient_snr.shape[2])) #maxshape=(samples.shape[0],int(N/thin)))
                                 f.create_dataset('signal_snr', data=signal_snr[:,:-1:thin, :], compression="gzip", chunks=True, maxshape = (n_chain, None, signal_snr.shape[2])) #maxshape=(samples.shape[0],int(N/thin)))
                                 f.create_dataset('total_signal_snr', data=total_signal_snr[:,:-1:thin], compression="gzip", chunks=True, maxshape = (n_chain, None)) #maxshape=(samples.shape[0],int(N/thin)))
+
                     #If resuming from a file where resume_from != savefile
                     #May need 2 cases here.
                     elif resume_from != savefile and not os.path.exists(savefile):
@@ -877,6 +888,7 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
                                 f['transient_snr'][:,-int((transient_snr.shape[1]-1)/thin):] = transient_snr[:,:-1:thin,:]
                                 f['signal_snr'][:,-int((signal_snr.shape[1]-1)/thin):] = signal_snr[:,:-1:thin, :]
                                 f['total_signal_snr'][:,-int((total_signal_snr.shape[1]-1)/thin):] = total_signal_snr[:,:-1:thin]
+
             #clear out log_likelihood and samples arrays
             samples_now = samples[:,-1,:]
             log_likelihood_now = log_likelihood[:,-1]
@@ -1036,64 +1048,64 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
             accept_jump_arr = np.zeros(n_chain)
             #i%save_every_n will check where we are in sample blocks
             if (jump_decide<swap_probability):
-                do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, 
-                                        QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, 
-                                        swap_record, vary_white_noise, num_noise_params, log_likelihood, 
-                                        PT_hist, PT_hist_idx, n_fast_to_slow, save_every_n, SNR_prior, 
-                                        snr_lnprior, transient_snr, signal_snr, total_signal_snr, i, 
-                                        T_dynamic, T_dynamic_nu, T_dynamic_t0) 
-                
+                do_pt_swap(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI,
+                                        QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no,
+                                        swap_record, vary_white_noise, num_noise_params, log_likelihood,
+                                        PT_hist, PT_hist_idx, n_fast_to_slow, save_every_n, SNR_prior,
+                                        snr_lnprior, transient_snr, signal_snr, total_signal_snr, i,
+                                        T_dynamic, T_dynamic_nu, T_dynamic_t0)
+
             #global proposal based on tau_scan
             elif (jump_decide<swap_probability+tau_scan_proposal_probability):
-                accept_jump_arr = do_tau_scan_global_jump(n_chain, pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no, 
-                                                          vary_white_noise, num_noise_params, tau_scan_data, log_likelihood, 
-                                                          wavelet_indx, glitch_indx, SNR_prior, snr_lnprior, transient_snr, 
+                accept_jump_arr = do_tau_scan_global_jump(n_chain, pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, a_no,
+                                                          vary_white_noise, num_noise_params, tau_scan_data, log_likelihood,
+                                                          wavelet_indx, glitch_indx, SNR_prior, snr_lnprior, transient_snr,
                                                           signal_snr, total_signal_snr, wavelet_amp_prior, wavelet_log_amp_range)
-                
+
             #jump to change number of wavelets
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability):
-                accept_jump_arr = do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wavelet_prior, 
-                                                     pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, 
-                                                     a_no, rj_record, vary_white_noise, num_noise_params, tau_scan_data, 
+                accept_jump_arr = do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wavelet_prior,
+                                                     pta, QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes,
+                                                     a_no, rj_record, vary_white_noise, num_noise_params, tau_scan_data,
                                                      log_likelihood,  wavelet_indx, glitch_indx, SNR_prior, snr_lnprior,
                                                      transient_snr, signal_snr, total_signal_snr, wavelet_amp_prior, wavelet_log_amp_range)
 
             #jump to change some noise parameters
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability):
                 accept_jump_arr = noise_jump(n_chain, max_n_wavelet, max_n_glitch, pta, QB_FPI, QB_logl, QB_Info,
-                                             samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx, 
-                                             per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs, num_noise_params, 
-                                             vary_white_noise, vary_per_psr_rn, log_likelihood, wavelet_indx, 
-                                             glitch_indx, N_Noise_Params_changed, de_history, DE_prob, 
+                                             samples, i%save_every_n, betas, a_yes, a_no, eig_per_psr, per_puls_indx,
+                                             per_puls_rn_indx, per_puls_wn_indx, all_noiseparam_idxs, num_noise_params,
+                                             vary_white_noise, vary_per_psr_rn, log_likelihood, wavelet_indx,
+                                             glitch_indx, N_Noise_Params_changed, de_history, DE_prob,
                                              fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior,
                                              transient_snr, signal_snr, total_signal_snr)
             #jump to change glitch params
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability+glitch_tau_scan_proposal_probability):
-                accept_jump_arr = do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,  QB_FPI, 
-                                                                 QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes, 
-                                                                 a_no, vary_white_noise, num_noise_params, glitch_tau_scan_data, 
-                                                                 log_likelihood, wavelet_indx, glitch_indx, SNR_prior, snr_lnprior, 
-                                                                 transient_snr, signal_snr, total_signal_snr, glitch_amp_prior, 
+                accept_jump_arr = do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,  QB_FPI,
+                                                                 QB_logl, QB_Info, samples, i%save_every_n, betas, a_yes,
+                                                                 a_no, vary_white_noise, num_noise_params, glitch_tau_scan_data,
+                                                                 log_likelihood, wavelet_indx, glitch_indx, SNR_prior, snr_lnprior,
+                                                                 transient_snr, signal_snr, total_signal_snr, glitch_amp_prior,
                                                                  glitch_log_amp_range)
 
             #jump to change number of glitches
             elif (jump_decide<swap_probability+tau_scan_proposal_probability+RJ_probability+noise_jump_probability+glitch_tau_scan_proposal_probability+glitch_RJ_probability):
-                accept_jump_arr = do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta, 
-                                                    QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas, 
-                                                    a_yes, a_no, vary_white_noise, num_noise_params, 
-                                                    glitch_tau_scan_data, log_likelihood, wavelet_indx, 
-                                                    glitch_indx, SNR_prior, snr_lnprior, transient_snr, 
+                accept_jump_arr = do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
+                                                    QB_FPI, QB_logl, QB_Info, samples, i%save_every_n, betas,
+                                                    a_yes, a_no, vary_white_noise, num_noise_params,
+                                                    glitch_tau_scan_data, log_likelihood, wavelet_indx,
+                                                    glitch_indx, SNR_prior, snr_lnprior, transient_snr,
                                                     signal_snr, total_signal_snr, glitch_amp_prior, glitch_log_amp_range)
 
             #do regular jump
             else:
-                accept_jump_arr = regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta,  QB_FPI, QB_logl, 
-                                               QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig, 
-                                               eig_glitch, eig_rn, num_noise_params, num_per_psr_params, 
-                                               vary_rn, wavelet_indx, glitch_indx, rn_indx, log_likelihood, 
-                                               DE_prob, fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior, 
-                                               transient_snr, signal_snr, total_signal_snr, glitch_amp_prior, 
-                                               glitch_log_amp_range, wavelet_amp_prior, wavelet_log_amp_range, 
+                accept_jump_arr = regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta,  QB_FPI, QB_logl,
+                                               QB_Info, samples, i%save_every_n, betas, a_yes, a_no, eig,
+                                               eig_glitch, eig_rn, num_noise_params, num_per_psr_params,
+                                               vary_rn, wavelet_indx, glitch_indx, rn_indx, log_likelihood,
+                                               DE_prob, fisher_prob, prior_draw_prob, SNR_prior, snr_lnprior,
+                                               transient_snr, signal_snr, total_signal_snr, glitch_amp_prior,
+                                               glitch_log_amp_range, wavelet_amp_prior, wavelet_log_amp_range,
                                                de_history)
 
             #update de history after every shape parameter update
@@ -1105,11 +1117,11 @@ Tau-scan-proposals: {1:.2f}%\nGlitch tau-scan-proposals: {5:.2f}%\nJumps along F
         else:
             #For fast jumps, can't have wavelet_indx[i, 3, 8, 9] or glitch_indx[i, 0, 3, 4, 5] Otherwise M and N gets recalculated
             #Note: i%save_every_n will be 1 through 9 when i%n_fast_to_slow != 0.
-            fast_jump(n_chain, QB_FPI, QB_Info, samples, i%save_every_n, 
-                    betas, a_yes, a_no, eig, eig_glitch, wavelet_indx, 
+            fast_jump(n_chain, QB_FPI, QB_Info, samples, i%save_every_n,
+                    betas, a_yes, a_no, eig, eig_glitch, wavelet_indx,
                     glitch_indx, log_likelihood, SNR_prior, snr_lnprior,
                     transient_snr, signal_snr, total_signal_snr)
-            
+
     acc_fraction = a_yes/(a_no+a_yes)
 
     return samples[:,::n_fast_to_slow,:], acc_fraction, swap_record, rj_record, pta, log_likelihood[:,::n_fast_to_slow], betas[:,::n_fast_to_slow], PT_acc
@@ -1221,16 +1233,29 @@ def do_tau_scan_global_jump(n_chain, pta, FPI, QB_logl, QB_Info,
             new_transient_snr = np.copy(transient_snr[j, i, :])
 
             #Draw snr prior, amplitudes, and modify new_point for selected wavelet
+            QB_logl[j].save_filter_cache()
             new_signal_snr[wavelet_select], new_snr_lnprior[wavelet_select] = compute_signal_snr_prior(new_point, QB_Info[j].glitch_indx, QB_Info[j].wavelet_indx, n_wavelet, n_glitch, wavelet_select, FPI, wavelet_amp_prior, wavelet_log_amp_range,
                                                                     QB_logl[j].toas, QB_logl[j].residuals, QB_logl[j].pos, QB_logl[j].sigmas, QB_logl[0].Npsr,
                                                                     np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN), QB_logl[j].Ts, QB_logl[j].CholSigma,
-                                                                    QB_logl[j].Ndiag, QB_logl[j].TN_residuals, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
-                                                                    np.copy(QB_logl[j].glitch_pulsars_previous), projection_step = False)
+                                                                    QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
+                                                                    np.copy(QB_logl[j].glitch_pulsars_previous),
+                                                                    QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
+                                                                    projection_step = False)
             log10_h_new = new_point[wavelet_indx[wavelet_select,4]]
             log10_h_cross_new = new_point[wavelet_indx[wavelet_select,5]]
 
-            
-            
+            # Reject if SNR prior is -inf (degenerate SNR = 0)
+            if new_snr_lnprior[wavelet_select] == -np.inf:
+                samples[j,i+1,:] = samples[j,i,:]
+                a_no[3,j]+=1
+                log_likelihood[j,i+1] = log_likelihood[j,i]
+                if SNR_prior:
+                    snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                    transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                    signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                    total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                continue
+
         log_L = QB_logl[j].get_lnlikelihood(new_point)
 
         #Compute total signal snr after log likelihood computation -> matrices have been updated
@@ -1415,15 +1440,29 @@ def do_glitch_tau_scan_global_jump(n_chain, max_n_wavelet, max_n_glitch, pta,
             new_total_sig_snr = total_signal_snr[j, i]
 
             #Draw snr prior, amplitudes, and modify new_point for each wavelet
-
+            QB_logl[j].save_filter_cache()
             new_transient_snr[glitch_select], new_snr_lnprior[FPI.max_n_wavelet + glitch_select] = compute_glitch_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_glitch, glitch_select,
                                                                     glitch_amp_prior, glitch_log_amp_range,
                                                                     QB_logl[j].toas, QB_logl[j].residuals, QB_Info[0].Npsr, QB_Info[j].pos,
                                                                     np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN), np.copy(QB_logl[j].wavelet_prm),
                                                                     np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                                                                    QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, projection_step = False)
+                                                                    QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres,
+                                                                    QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
+                                                                    projection_step = False)
 
             log10_h_new = new_point[glitch_indx[glitch_select,1]]
+
+            # Reject if SNR prior is -inf (degenerate SNR = 0)
+            if new_snr_lnprior[FPI.max_n_wavelet + glitch_select] == -np.inf:
+                samples[j,i+1,:] = samples[j,i,:]
+                a_no[1,j]+=1
+                log_likelihood[j,i+1] = log_likelihood[j,i]
+                if SNR_prior:
+                    snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                    transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                    signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                    total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                continue
 
         log_L = QB_logl[j].get_lnlikelihood(new_point)
 
@@ -1666,6 +1705,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
             new_transient_snr = np.copy(transient_snr[j, i, :])
 
             # Draw SNR prior — rejection-samples new amplitudes into new_point
+            QB_logl[j].save_filter_cache()
             new_signal_snr[wavelet_select], new_snr_lnprior[wavelet_select] = compute_signal_snr_prior(
                 new_point, QB_Info[j].glitch_indx, QB_Info[j].wavelet_indx,
                 n_wavelet, n_glitch, wavelet_select, FPI,
@@ -1674,13 +1714,28 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 np.copy(QB_logl[j].sigmas), QB_logl[j].Npsr,
                 np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
                 QB_logl[j].Ts, QB_logl[j].CholSigma,
-                QB_logl[j].Ndiag, QB_logl[j].TN_residuals,
+                QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres,
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
+                QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
                 projection_step=False)
 
             # Compute total signal SNR with correct post-SNR sigmas
             new_total_sig_snr = compute_total_signal_snr(QB_logl[j].sigmas, QB_logl[j].MMs, n_wavelet)
+
+            # Reject if SNR prior is -inf (degenerate SNR = 0)
+            if new_snr_lnprior[wavelet_select] == -np.inf:
+                samples[j,i+1,:] = samples[j,i,:]
+                if which_jump == 0: a_no[6,j] += 1
+                elif which_jump == 1: a_no[7,j] += 1
+                elif which_jump == 2: a_no[8,j] += 1
+                log_likelihood[j,i+1] = log_likelihood[j,i]
+                if SNR_prior:
+                    snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                    transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                    signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                    total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                continue
 
         elif SNR_prior and what_to_vary == 'GLITCH':
             new_snr_lnprior = np.copy(snr_lnprior[j, i, :])
@@ -1690,6 +1745,7 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
 
 
             # Draw SNR prior — rejection-samples new amplitudes into new_point
+            QB_logl[j].save_filter_cache()
             new_transient_snr[glitch_select], new_snr_lnprior[FPI.max_n_wavelet + glitch_select] = compute_glitch_snr_prior(
                 new_point, glitch_indx, wavelet_indx,
                 n_wavelet, n_glitch, glitch_select,
@@ -1698,8 +1754,23 @@ def regular_jump(n_chain, max_n_wavelet, max_n_glitch, pta, FPI, QB_logl, QB_Inf
                 np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), np.copy(QB_logl[j].NN),
                 np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm),
                 np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals,
+                QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres,
+                QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
                 projection_step=False)
+
+            # Reject if SNR prior is -inf (degenerate SNR = 0)
+            if new_snr_lnprior[FPI.max_n_wavelet + glitch_select] == -np.inf:
+                samples[j,i+1,:] = samples[j,i,:]
+                if which_jump == 0: a_no[6,j] += 1
+                elif which_jump == 1: a_no[7,j] += 1
+                elif which_jump == 2: a_no[8,j] += 1
+                log_likelihood[j,i+1] = log_likelihood[j,i]
+                if SNR_prior:
+                    snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                    transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                    signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                    total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                continue
 
         new_log_prior = QB_FastPrior.get_lnprior_helper(new_point, FPI.uniform_par_ids, FPI.uniform_lows, FPI.uniform_highs,\
                                                FPI.lin_exp_par_ids, FPI.lin_exp_lows, FPI.lin_exp_highs,\
@@ -2131,7 +2202,17 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
             
             log_acc_ratio = 0.0
 
-            
+            # Save and shift filter cache before any get_M_N with new wavelet count
+            QB_logl[j].save_filter_cache()
+            if n_glitch > 0:
+                for ii in range(QB_logl[j].Npsr):
+                    filt_cos = np.copy(QB_logl[j].Filt_cos[ii][n_wavelet:n_wavelet+n_glitch])
+                    QB_logl[j].Filt_cos[ii][n_wavelet+1:n_wavelet+1+n_glitch] = filt_cos
+                    filt_sin = np.copy(QB_logl[j].Filt_sin[ii][n_wavelet:n_wavelet+n_glitch])
+                    QB_logl[j].Filt_sin[ii][n_wavelet+1:n_wavelet+1+n_glitch] = filt_sin
+                    filt_inv = np.copy(QB_logl[j].invCholSigmaTNfilter[ii][n_wavelet:n_wavelet+n_glitch])
+                    QB_logl[j].invCholSigmaTNfilter[ii][n_wavelet+1:n_wavelet+1+n_glitch] = filt_inv
+
             #For now, simply compute snr of new wavelet and get snr prior value
             if SNR_prior:
                #Calculate SNRs for new point
@@ -2147,15 +2228,29 @@ def do_wavelet_rj_move(n_chain, max_n_wavelet, min_n_wavelet, max_n_glitch, n_wa
                 new_signal_snr[n_wavelet], new_snr_lnprior[n_wavelet] = compute_signal_snr_prior(new_point, np.copy(QB_Info[j].glitch_indx), np.copy(QB_Info[j].wavelet_indx), n_wavelet+1, n_glitch, n_wavelet, FPI, wavelet_amp_prior, wavelet_log_amp_range,
                                                                         QB_logl[j].toas, QB_logl[j].residuals, np.copy(QB_logl[j].pos), sig_loc, QB_logl[0].Npsr,
                                                                         MMs_loc, NN_loc, QB_logl[j].Ts, QB_logl[j].CholSigma,
-                                                                        QB_logl[j].Ndiag, QB_logl[j].TN_residuals, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
-                                                                        np.copy(QB_logl[j].glitch_pulsars_previous), projection_step = False)
+                                                                        QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres, np.copy(QB_logl[j].wavelet_prm), np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars),
+                                                                        np.copy(QB_logl[j].glitch_pulsars_previous),
+                                                                        QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
+                                                                        projection_step = False)
 
                 new_total_sig_snr = compute_total_signal_snr(np.copy(QB_logl[j].sigmas), np.copy(QB_logl[j].MMs), n_wavelet+1)
                 
                 #Get new amplitude saves
                 log10_h_new = new_point[wavelet_indx[n_wavelet,4]]
                 log10_h_cross_new = new_point[wavelet_indx[n_wavelet,5]]
-                            
+
+                # Reject if SNR prior is -inf (degenerate SNR = 0)
+                if new_snr_lnprior[n_wavelet] == -np.inf:
+                    samples[j,i+1,:] = samples[j,i,:]
+                    a_no[2,j] += 1
+                    log_likelihood[j,i+1] = log_likelihood[j,i]
+                    if SNR_prior:
+                        snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                        transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                        signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                        total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                    continue
+
             log_L = QB_logl[j].M_N_RJ_helper(new_point, n_wavelet+1, n_glitch, adding = True, wavelet_change = True)
             
             prior_ext = (pta.params[wavelet_indx[0,0]].get_pdf(cos_gwtheta_new) * pta.params[wavelet_indx[0,1]].get_pdf(psi_new) *
@@ -2474,18 +2569,33 @@ def do_glitch_rj_move(n_chain, max_n_wavelet, max_n_glitch, n_glitch_prior, pta,
                     adding=True, is_wavelet=False
                 )
 
+                QB_logl[j].save_filter_cache()
                 new_transient_snr[n_glitch], new_snr_lnprior[FPI.max_n_wavelet + n_glitch] = compute_glitch_snr_prior(new_point, glitch_indx, wavelet_indx, n_wavelet, n_glitch+1, n_glitch,
                                                                         glitch_amp_prior, glitch_log_amp_range, QB_logl[j].toas, QB_logl[j].residuals, QB_Info[0].Npsr, QB_Info[j].pos,
                                                                         sig_loc, MMs_loc, NN_loc, np.copy(QB_logl[j].wavelet_prm),
                                                                         np.copy(QB_logl[j].glitch_prm), np.copy(QB_logl[j].glitch_pulsars), np.copy(QB_logl[j].glitch_pulsars_previous),
-                                                                        QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, projection_step = False)
+                                                                        QB_logl[j].Ts, QB_logl[j].CholSigma, QB_logl[j].Ndiag, QB_logl[j].TN_residuals, QB_logl[j].invCholSigmaTNres,
+                                                                        QB_logl[j].Filt_cos, QB_logl[j].Filt_sin, QB_logl[j].invCholSigmaTNfilter,
+                                                                        projection_step = False)
 
                 # #Log likelihood needs to be recomputed after drawing new amplitude values for the chosen GW wavelet, but can do quickly.
                 # log_L = QB_logl[j].get_lnlikelihood(new_point)
                 
                 #Get new amplitude saves from snr prior/amplitude sampling
                 log10_h_new = new_point[glitch_indx[n_glitch,1]]
-            
+
+                # Reject if SNR prior is -inf (degenerate SNR = 0)
+                if new_snr_lnprior[FPI.max_n_wavelet + n_glitch] == -np.inf:
+                    samples[j,i+1,:] = samples[j,i,:]
+                    a_no[0,j] += 1
+                    log_likelihood[j,i+1] = log_likelihood[j,i]
+                    if SNR_prior:
+                        snr_lnprior[j, i+1, :] = snr_lnprior[j, i, :]
+                        transient_snr[j, i+1, :] = transient_snr[j, i, :]
+                        signal_snr[j, i+1, :] = signal_snr[j, i, :]
+                        total_signal_snr[j, i+1] = total_signal_snr[j, i]
+                    continue
+
             log_L = QB_logl[j].M_N_RJ_helper(new_point, n_wavelet, n_glitch+1, adding = True, glitch_change = True)
             
             prior_ext = pta.params[glitch_indx[0,2]].get_pdf(phase0_new) * pta.params[glitch_indx[0,1]].get_pdf(log10_h_new)
@@ -4024,3 +4134,4 @@ def copy_ragged(ragged_list):
     for i in range(len(ragged_list)):
         new_list.append(np.copy(ragged_list[i]))
     return new_list
+
